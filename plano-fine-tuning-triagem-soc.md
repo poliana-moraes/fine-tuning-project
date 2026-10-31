@@ -1,15 +1,8 @@
-# Projeto Didático — Fine-Tuning para Triagem de Alertas em SOC
-
-**Disciplina:** Fine-Tuning de Modelos de Linguagem
-**Tema:** Triagem automatizada de alertas de segurança (SOC — Security Operations Center)
-**Ecossistema:** Hugging Face (`transformers`, `datasets`, `tokenizers`, `peft`, `trl`, `evaluate`, `huggingface_hub`)
-**Formato:** projeto prático, individual ou em dupla, com entregas por fase
-
----
+# Projeto — Fine-Tuning para Triagem de Alertas em SOC (Security Operations Center)
 
 ## 0. Visão geral do projeto
 
-### 0.1 Problema de negócio
+### Problema
 
 Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Analistas de nível 1 (L1) gastam a maior parte do tempo **triando** esses alertas: decidindo se é falso positivo, qual a severidade real, e qual ação tomar. Isso gera *alert fatigue* e atraso na resposta a incidentes reais.
 
@@ -25,16 +18,8 @@ O projeto consiste em fazer o **fine-tuning de um modelo de linguagem pequeno** 
 }
 ```
 
-Isso transforma a tarefa em **classificação + geração estruturada condicionada**, o que é pedagogicamente rico: cobre tokenização de instrução, templates de chat, LoRA/QLoRA, e métricas combinadas (classificação + qualidade textual).
 
-### 0.2 Por que este tema serve bem à disciplina
-
-- É uma tarefa real de cibersegurança (liga a disciplina de fine-tuning ao eixo de segurança do curso).
-- Dados sensíveis/raros → força o aluno a **construir e tratar dados sintéticos**, uma habilidade real de projetos de IA aplicada à segurança.
-- Tem uma métrica de negócio clara e assimétrica (falso negativo em "crítico" é muito mais caro que falso positivo), o que obriga discussão de métricas além de acurácia.
-- Cabe em hardware de aluno (GPU gratuita de Colab/Kaggle) usando PEFT/LoRA.
-
-### 0.3 Estrutura de pastas recomendada no repositório
+### Estrutura de pastas no repositório
 
 ```
 fine-tuning-project/
@@ -58,7 +43,7 @@ fine-tuning-project/
 └── model_card.md
 ```
 
-### 0.4 Entregáveis por fase (resumo)
+### Entregáveis por fase
 
 | Fase | Entregável |
 |---|---|
@@ -68,7 +53,7 @@ fine-tuning-project/
 | 4. Execução do treinamento | Script/notebook de treino + checkpoints |
 | 5. Estratégia de ajustes | Tabela de hiperparâmetros testados + justificativa da escolha final |
 | 6. Avaliação | Relatório de métricas no conjunto de teste + matriz de confusão |
-| 7. Publicação | Modelo publicado no Hugging Face Hub + model card + demo (Space) |
+| 7. Publicação | Modelo privado no Hugging Face Hub + model card + script de inferência a partir do Hub |
 
 ---
 
@@ -380,14 +365,25 @@ Com base nos erros de avaliação, decidir **onde** voltar:
 
 **Objetivo da fase:** disponibilizar o modelo para uso e acompanhar seu comportamento em produção.
 
-### 7.1 Publicar no Hugging Face Hub
+**O que o aluno ganha com esta fase:**
+
+- **Prova de que o modelo funciona fora do notebook.** Carregar o modelo do Hub numa sessão limpa revela erros que o notebook de treino esconde: tokenizador ou chat template não salvos, JSON que só sai válido com os parâmetros de geração do notebook, latência real de inferência.
+- **Compromisso com as limitações.** O model card obriga a declarar publicamente que os dados são sintéticos, qual o recall de crítico e que o modelo exige revisão humana.
+- **Fechamento do ciclo.** A discussão de monitoramento mostra que o feedback de produção vira dado novo (volta à Fase 2).
+- **Portfólio** profissional no Hugging Face Hub.
+
+**Escopo:** obrigatórios são 7.1, 7.2 e 7.3. A demo (7.4) é opcional/bônus. O monitoramento (7.5) é apenas discussão escrita.
+
+### 7.1 Publicar no Hugging Face Hub (obrigatório, repositório privado)
 
 ```python
-model.push_to_hub("seu-usuario/soc-triage-qwen2.5-1.5b-lora")
-tokenizer.push_to_hub("seu-usuario/soc-triage-qwen2.5-1.5b-lora")
+repo_id = "seu-usuario/soc-triage-qwen2.5-1.5b-lora"
+model.push_to_hub(repo_id, private=True)
+tokenizer.push_to_hub(repo_id, private=True)
 ```
 
-- Se usou LoRA, decidir entre publicar **apenas o adaptador** (leve, requer carregar o modelo base + `peft` na inferência) ou fazer `merge_and_unload()` e publicar os pesos completos (mais simples de consumir, maior tamanho).
+- Publicar como **privado**: é um modelo de segurança treinado com dados sintéticos e não validado, então não deve ficar disponível publicamente por padrão.
+- Se usou LoRA, decidir entre publicar **apenas o adaptador** (leve, requer carregar o modelo base + `peft` na inferência) ou fazer `merge_and_unload()` e publicar os pesos completos (mais simples de consumir, maior tamanho). Justificar a escolha no model card.
 
 ### 7.2 Model Card (obrigatório)
 
@@ -398,35 +394,68 @@ Criar `README.md`/`model_card.md` do repositório no Hub contendo, no mínimo:
 - Métricas da Fase 6 (incluindo a métrica de negócio — recall de crítico).
 - **Aviso explícito de uso responsável:** este modelo é um **assistente de triagem**, não deve tomar decisão final sem revisão humana (*human-in-the-loop* obrigatório dado o risco de falso negativo em segurança).
 
-### 7.3 Demonstração (recomendado)
+### 7.3 Script de inferência a partir do Hub (obrigatório)
 
-Publicar um **Hugging Face Space** com Gradio para demo interativa:
+Entregar `src/inference.py`, executado numa **sessão limpa** (novo runtime do Colab, sem variáveis do notebook de treino), que:
+
+1. Carrega o modelo e o tokenizador **direto do Hub** (`AutoModelForCausalLM.from_pretrained(repo_id)` ou modelo base + `PeftModel.from_pretrained(base, repo_id)`).
+2. Aplica o mesmo chat template e prompt de sistema usados no treino.
+3. Tria **5 alertas do conjunto de teste**, incluindo pelo menos 1 crítico e 1 falso positivo.
+4. Faz `json.loads` em cada saída e imprime o resultado ao lado do rótulo esperado.
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+import json
+
+base_id = "Qwen/Qwen2.5-1.5B-Instruct"
+repo_id = "seu-usuario/soc-triage-qwen2.5-1.5b-lora"
+
+tokenizer = AutoTokenizer.from_pretrained(repo_id)
+model = PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(base_id), repo_id)
+
+def triar(alerta: str) -> dict:
+    messages = [
+        {"role": "system", "content": "Você é um analista de SOC. Analise o alerta e produza a triagem em JSON."},
+        {"role": "user", "content": alerta},
+    ]
+    inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
+    out = model.generate(inputs, max_new_tokens=256, do_sample=False)
+    return json.loads(tokenizer.decode(out[0][inputs.shape[1]:], skip_special_tokens=True))
+```
+
+> **Critério de aceite:** o script roda do início ao fim sem acesso a nenhum arquivo local do treino. Se falhar, o problema geralmente está no que **não** foi publicado (tokenizador, template, configuração do adaptador). Isso é exatamente o que a fase quer revelar.
+
+### 7.4 Demonstração (opcional / bônus)
+
+Publicar um **Hugging Face Space** com Gradio para demo interativa, reaproveitando a função `triar` do script acima:
 
 ```python
 import gradio as gr
 
-def triar(alerta):
-    # carrega modelo + tokenizer, aplica chat template, gera e faz parse do JSON
-    ...
+from inference import triar
 
 gr.Interface(fn=triar, inputs="text", outputs="json").launch()
 ```
 
-### 7.4 Acompanhamento em produção (discussão conceitual para a disciplina)
+> Se o Space for público, ele expõe um modelo privado: mantenha o Space também privado ou use apenas para apresentação em aula.
 
-Mesmo em escopo de projeto didático, discutir e documentar como seria o monitoramento real:
+### 7.5 Acompanhamento em produção (discussão escrita, sem implementação)
+
+No relatório, descrever em até uma página como seria o monitoramento real:
 
 - **Logging de previsões** (entrada, saída, timestamp) para auditoria — cuidado com dados sensíveis reais.
 - **Feedback loop**: analistas humanos marcam se a triagem do modelo estava certa → vira dado para retraining futuro (volta à Fase 2).
 - **Monitoramento de drift**: novos tipos de ataque/ferramentas (ex.: nova técnica MITRE) podem não estar no vocabulário de treino — acompanhar taxa de "incerteza"/JSON inválido como sinal de alerta.
 - **Métricas de produção**: tempo médio de triagem economizado, taxa de concordância analista-modelo, nº de críticos escalados corretamente.
 
-### 7.5 Checklist de saída da Fase 7
+### 7.6 Checklist de saída da Fase 7
 
-- [ ] Modelo (ou adaptador LoRA) publicado no Hugging Face Hub.
+- [ ] Modelo (ou adaptador LoRA) publicado como **privado** no Hugging Face Hub.
 - [ ] Model card completo com métricas, limitações e aviso de uso responsável.
-- [ ] (Recomendado) Space com demo funcional.
-- [ ] Seção de "plano de monitoramento em produção" documentada mesmo que não implementada de fato.
+- [ ] `src/inference.py` rodando em sessão limpa e triando 5 alertas de teste com JSON válido.
+- [ ] Seção de "plano de monitoramento em produção" no relatório (máx. 1 página).
+- [ ] (Bônus) Space com demo funcional.
 
 ---
 
@@ -440,4 +469,5 @@ Mesmo em escopo de projeto didático, discutir e documentar como seria o monitor
 | Execução do treino com monitoramento e diagnóstico correto da curva de loss (Fase 4) | 15% |
 | Rigor na busca e justificativa de hiperparâmetros (Fase 5) | 15% |
 | Qualidade da avaliação, incluindo métrica de negócio (Fase 6) | 20% |
-| Publicação, model card e discussão de uso responsável (Fase 7) | 10% |
+| Publicação no Hub, model card, script de inferência em sessão limpa e discussão de uso responsável (Fase 7) | 10% |
+| Bônus: Space com demo funcional (Fase 7.4) | +5% |
