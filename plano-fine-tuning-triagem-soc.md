@@ -1,12 +1,12 @@
 # Projeto — Fine-Tuning para Triagem de Alertas em SOC (Security Operations Center)
 
-## 0. Visão geral do projeto
+## Visão geral do projeto
 
 ### Problema
 
-Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Analistas de nível 1 (L1) gastam a maior parte do tempo **triando** esses alertas: decidindo se é falso positivo, qual a severidade real e por quê. Isso gera *alert fatigue* e atraso na resposta a incidentes reais.
+Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Mesmo quando o pipeline já enriquece cada alerta com contexto (criticidade do ativo, perfil do usuário, reputação de IOC, histórico), o analista de nível 1 (L1) ainda precisa ler alerta por alerta e aplicar a política de severidade da casa para decidir se é falso positivo, qual a severidade real e por quê. Essa decisão repetitiva consome a maior parte do tempo do L1. Ela também varia entre analistas e turnos, o que gera *alert fatigue*, triagens inconsistentes e atraso na resposta a incidentes reais.
 
-### Onde o fine-tuning entra (e onde não entra)
+### Onde o fine-tuning aplica
 
 Num SOC real, a triagem é um pipeline. O fine-tuning se aplica a **uma única etapa**:
 
@@ -15,7 +15,7 @@ Alerta bruto
    │
    ▼
 [Enriquecimento]  CMDB (criticidade do ativo), IAM (perfil do usuário),
-   │              Threat Intel (reputação de IOC), histórico do SIEM   ← NÃO é fine-tuning (integração/RAG)
+   │              Threat Intel (reputação de IOC), histórico do SIEM   ← NÃO é fine-tuning (RAG)
    ▼
 Alerta enriquecido
    │
@@ -26,14 +26,14 @@ Alerta enriquecido
 [Analista L1]     valida a triagem                                       ← humano no circuito
    │
    ▼
-[SOAR]            executa o playbook de resposta                         ← NÃO é fine-tuning (automação)
+[SOAR]            executa o playbook de resposta                         ← NÃO é fine-tuning (Automação)
 ```
 
 **Por que o fine-tuning se justifica nesta etapa:**
 
 - **Privacidade:** os alertas contêm hosts, usuários e IPs internos e não podem sair do ambiente. Um modelo pequeno ajustado roda on-premises.
 - **Volume e custo:** com milhares de alertas por dia, um modelo pequeno ajustado é muito mais barato e rápido por alerta do que um modelo grande via API.
-- **Consistência:** o modelo aprende a aplicar sempre a **política de severidade da casa** e a devolver sempre o mesmo formato JSON, coisa que um modelo pequeno não faz de forma confiável só com prompt.
+- **Consistência:** o modelo aprende a aplicar sempre a **política de severidade da organização** e a devolver sempre o mesmo formato JSON, coisa que um modelo pequeno não faz de forma confiável só com prompt.
 
 **O que fica de fora de propósito:** mapeamento MITRE, ação de resposta e consulta a bases externas. É conhecimento que muda rápido ou que é determinístico, e por isso pertence ao enriquecimento ou ao SOAR, não aos pesos do modelo.
 
@@ -56,35 +56,6 @@ Para caber no tempo do projeto, os alunos **não geram dados do zero**. Eles rec
 - `data/alertas_soc.jsonl`: cerca de 1.500 alertas sintéticos enriquecidos e rotulados segundo a política da casa (Fase 1). O arquivo contém **defeitos propositais** (duplicatas, JSON inválido, rótulos inconsistentes com a política) para a auditoria da Fase 2.
 - `data/amostra_baseline.jsonl`: 20 alertas, fora do dataset principal, usados no teste de necessidade da Fase 1.
 - `docs/politica_severidade.md`: a política de severidade da casa (resumida na Fase 1).
-
-### Duração e ambiente
-
-- Tempo total estimado: **cerca de 4 horas**, com o tempo estimado indicado em cada fase.
-- Ambiente: Google Colab ou Kaggle com GPU T4 (gratuita).
-- Bibliotecas: `transformers`, `datasets`, `peft`, `trl`, `evaluate`, `huggingface_hub`, `scikit-learn`.
-
-### Estrutura de pastas no repositório
-
-```
-fine-tuning-project/
-├── plano-fine-tuning-triagem-soc.md   <- este arquivo
-├── docs/
-│   └── politica_severidade.md
-├── data/
-│   ├── alertas_soc.jsonl       # fornecido (com defeitos propositais)
-│   ├── amostra_baseline.jsonl  # fornecido
-│   └── splits/                 # train.jsonl, val.jsonl, test.jsonl (gerados na Fase 2)
-├── notebooks/
-│   ├── 01_planejamento_baseline.ipynb
-│   ├── 02_preparacao_dados.ipynb
-│   ├── 03_tokenizacao.ipynb
-│   ├── 04_05_treinamento.ipynb
-│   ├── 06_avaliacao.ipynb
-│   └── 07_publicacao.ipynb
-├── src/
-│   └── inference.py
-└── model_card.md
-```
 
 ### Entregáveis por fase
 
