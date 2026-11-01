@@ -4,42 +4,11 @@
 
 ### Problema
 
-Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Mesmo quando as etapas automáticas de coleta, normalização e enriquecimento (detalhadas abaixo) já entregam cada alerta com contexto (criticidade do ativo, perfil do usuário, reputação de IOC, histórico), o analista de nível 1 (L1) ainda precisa ler alerta por alerta e aplicar a política de severidade da organização para decidir se é falso positivo, qual a severidade real e por quê. Essa decisão repetitiva consome a maior parte do tempo do L1. Ela também varia entre analistas e turnos, o que gera *alert fatigue*, triagens inconsistentes e atraso na resposta a incidentes reais.
-
-### Onde o fine-tuning aplica
-
-Num SOC real, o alerta passa por um fluxo de etapas até chegar à resposta. O fine-tuning se aplica a **uma única etapa**:
-
-```
-Alerta bruto
-   │
-   ▼
-[Enriquecimento]  CMDB (criticidade do ativo), IAM (perfil do usuário),
-   │              Threat Intel (reputação de IOC), histórico do SIEM   ← NÃO é fine-tuning (RAG)
-   ▼
-Alerta enriquecido
-   │
-   ▼
-[Modelo ajustado] gera triagem estruturada seguindo a política da organização  ← FINE-TUNING (este projeto)
-   │
-   ▼
-[Analista L1]     valida a triagem                                       ← humano no circuito
-   │
-   ▼
-[SOAR]            executa o playbook de resposta                         ← NÃO é fine-tuning (Automação)
-```
-
-**Por que o fine-tuning se justifica nesta etapa:**
-
-- **Privacidade:** os alertas contêm hosts, usuários e IPs internos e não podem sair do ambiente. Um modelo pequeno ajustado roda on-premises.
-- **Volume e custo:** com milhares de alertas por dia, um modelo pequeno ajustado é muito mais barato e rápido por alerta do que um modelo grande via API.
-- **Consistência:** o modelo aprende a aplicar sempre a **política de severidade da organização** e a devolver sempre o mesmo formato JSON, coisa que um modelo pequeno não faz de forma confiável só com prompt.
-
-**O que fica de fora de propósito:** mapeamento MITRE, ação de resposta e consulta a bases externas. É conhecimento que muda rápido ou que é determinístico, e por isso pertence ao enriquecimento ou ao SOAR, não aos pesos do modelo.
+Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Mesmo quando as etapas de coleta, normalização e enriquecimento (detalhadas abaixo) já entregam cada alerta com contexto (criticidade do ativo, perfil do usuário, reputação de IOC, histórico), o analista de nível 1 (L1) ainda precisa ler alerta por alerta e aplicar a política de severidade da organização para decidir se é falso positivo, qual a severidade real e por quê. Essa decisão repetitiva consome a maior parte do tempo do L1. Ela também varia entre analistas e turnos, o que gera triagens inconsistentes e atraso na resposta a incidentes reais.
 
 ### Tarefa do modelo
 
-A partir de um **alerta já enriquecido**, produzir:
+A partir de um **alerta com sinal técnico e contexto**, produzir:
 
 ```json
 {
@@ -49,36 +18,58 @@ A partir de um **alerta já enriquecido**, produzir:
 }
 ```
 
-### Material fornecido pelo professor
+### Entregas por fase
 
-Para caber no tempo do projeto, os alunos **não geram dados do zero**. Eles recebem:
+| Fase | Entregável |
+|---|---|
+| 1. Planejamento do objetivo e do modelo | Ficha de objetivo e modelo + resultado do teste de necessidade (baseline) |
+| 2. Preparação dos dados | Relatório de auditoria + splits treino/validação/teste |
+| 3. Tokenização | Histograma de tokens + verificação da máscara de loss |
+| 4. Execução do treinamento | Curvas de loss com diagnóstico escrito + adaptador LoRA |
+| 5. Estratégia de ajustes | Configuração justificada (estratégia + hiperparâmetros) |
+| 6. Avaliação | Tabela baseline × fine-tuned + matriz de confusão + uma iteração |
+| 7. Publicação | Modelo privado no Hub + model card + notebook de inferência |
 
-- `data/alertas_soc.jsonl`: cerca de 1.500 alertas sintéticos enriquecidos e rotulados segundo a política da organização (Fase 1). O arquivo contém **defeitos propositais** (duplicatas, JSON inválido, rótulos inconsistentes com a política) para a auditoria da Fase 2.
-- `data/amostra_baseline.jsonl`: 20 alertas, fora do dataset principal, usados no teste de necessidade da Fase 1.
-- `docs/politica_severidade.md`: a política de severidade da organização (resumida na Fase 1).
+### Ambiente e ferramentas
 
-### Entregáveis por fase
-
-| Fase | Tempo estimado | Entregável |
+| Ferramenta | Papel | Quem usa |
 |---|---|---|
-| 1. Planejamento | 25 min | Ficha de objetivo e modelo + resultado do teste de necessidade (baseline) |
-| 2. Preparação dos dados | 25 min | Relatório de auditoria + splits treino/validação/teste |
-| 3. Tokenização | 20 min | Histograma de tokens + verificação da máscara de loss |
-| 4. Execução do treinamento | 40 min | Curvas de loss com diagnóstico escrito + adaptador LoRA salvo |
-| 5. Estratégia de ajustes | 15 min | Configuração justificada (estratégia + hiperparâmetros) |
-| 6. Avaliação | 60 min | Tabela baseline × fine-tuned + matriz de confusão + uma iteração |
-| 7. Publicação | 25 min | Modelo privado no Hub + model card + script de inferência |
+| **Google Colab** | Onde o código roda: um notebook por fase, com GPU T4 | Alunos e professor |
+| **Hugging Face Hub** | Modelo base, dataset do projeto (privado), splits de cada aluno e publicação do adaptador e do model card | Alunos e professor |
+| **GitHub** | Versão oficial do material (plano, política de severidade, notebooks). O Colab abre notebooks direto do GitHub e salva cópias de volta | Professor; alunos para entregar |
+| **VS Code** | Edição do plano e dos documentos e trabalho com git | Só o professor |
+
+**Configuração do Colab:** em *Ambiente de execução → Alterar o tipo de ambiente de execução*, selecionar **GPU T4**.
+
+**Primeira célula de todo notebook:**
+
+```python
+!pip install -q transformers datasets peft trl evaluate scikit-learn
+
+from google.colab import userdata
+from huggingface_hub import login
+
+login(token=userdata.get("HF_TOKEN"))
+```
+
+> O professor fixa na célula acima as versões testadas das bibliotecas (ex.: `transformers==X.Y.Z`) antes do início do projeto, para que todos rodem o mesmo ambiente.
+
+**Cuidados:**
+
+- **Token do Hugging Face só nos *Secrets* do Colab** (ícone de chave, nome `HF_TOKEN`). Nunca colar o token numa célula nem commitá-lo no GitHub. Um token vazado num notebook versionado é um incidente de segurança real.
+- **Uma fonte por artefato.** O dataset fica só no Hugging Face, e notebooks e documentos ficam só no GitHub. Assim ninguém trabalha com uma versão desatualizada.
+- **O runtime do Colab é temporário.** Tudo que é salvo no disco do runtime some quando ele desconecta. Por isso os splits (Fase 2) e o adaptador (Fase 4) são enviados ao Hub assim que gerados.
+- **Acesso:** o dataset fica numa *organization* da turma no Hugging Face (alunos como membros), e o repositório do GitHub dá acesso aos alunos como colaboradores ou via repositório da turma.
 
 ---
 
 ## Fase 1 — Planejamento do objetivo e do modelo
 
-**Tempo estimado:** 25 min
 **Objetivo da fase:** definir o que o modelo deve fazer, como saber se funcionou, provar que o fine-tuning é necessário e escolher o modelo base.
 
 ### 1.1 Definição da tarefa
 
-- **Entrada:** alerta enriquecido (sinal técnico + contexto).
+- **Entrada:** alerta com sinal técnico + contexto.
 - **Saída:** JSON com `veredito`, `severidade` e `justificativa`.
 - **Tipo:** fine-tuning supervisionado (SFT) de um LLM pequeno, com saída em formato restrito.
 
@@ -92,9 +83,9 @@ A severidade **não** depende só do sinal técnico. Depende da combinação com
 | Moderado (ex.: login fora do horário, ferramenta administrativa incomum) | alta | media | baixa |
 | Fraco e recorrente (ex.: mesmo alerta > 50 vezes em 7 dias sem incidente) | media | baixa | baixa (falso positivo provável) |
 
-> **Ponto de discussão:** o mesmo PowerShell é crítico num controlador de domínio e médio numa máquina de laboratório. É essa política, aplicada de forma consistente, que justifica ajustar o modelo. Um modelo genérico não conhece o critério da sua empresa.
+> **Ponto de discussão:** o mesmo PowerShell é crítico num controlador de domínio e médio numa máquina de laboratório. É essa política, aplicada de forma consistente, que justifica ajustar o modelo. Um modelo genérico não conhece o critério da sua organização.
 
-### 1.3 Critério de sucesso (definido antes de treinar)
+### 1.3 Critério de sucesso
 
 | Métrica | Meta |
 |---|---|
@@ -102,13 +93,13 @@ A severidade **não** depende só do sinal técnico. Depende da combinação com
 | Acurácia de veredito | ≥ 85% |
 | **Recall de severidade "crítica"** | **≥ 90%** (métrica de negócio: perder um crítico é o pior erro) |
 | Justificativa coerente (checklist humano, 10 casos) | ≥ 8 de 10 |
-| **Ganho sobre o baseline** | O fine-tuned precisa superar o baseline nas métricas acima |
+| **Resultado esperado** | O fine-tuned precisa superar o baseline nas métricas acima |
 
-### 1.4 Teste de necessidade (baseline)
+### 1.4 Teste de necessidade
 
 Antes de decidir ajustar, prove que o prompt sozinho não basta:
 
-1. Rodar o modelo base escolhido com um **prompt few-shot** (política de severidade + 3 exemplos) sobre `data/amostra_baseline.jsonl`.
+1. Rodar o modelo base escolhido com um **prompt few-shot** (política de severidade + 3 exemplos) sobre a amostra de baseline: `load_dataset("org-da-turma/alertas-soc", data_files="amostra_baseline.jsonl")`.
 2. Contar: quantas saídas são JSON válido? Quantas severidades seguem a política?
 3. Registrar o resultado. Ele será comparado formalmente na Fase 6.
 
@@ -138,7 +129,6 @@ Decisão para o projeto:
 
 ## Fase 2 — Preparação dos dados
 
-**Tempo estimado:** 25 min
 **Objetivo da fase:** auditar o dataset fornecido, limpar, padronizar e dividir em treino, validação e teste.
 
 ### 2.1 Formato do exemplo
@@ -152,9 +142,9 @@ Decisão para o projeto:
 }
 ```
 
-### 2.2 Auditoria (encontrar os defeitos propositais)
+### 2.2 Auditoria
 
-Carregar com `datasets.load_dataset("json", data_files="data/alertas_soc.jsonl")` e verificar:
+Carregar do Hub com `datasets.load_dataset("org-da-turma/alertas-soc", data_files="alertas_soc.jsonl")` e verificar:
 
 - [ ] **Duplicatas** exatas no par `alerta` + `contexto`.
 - [ ] **Triagem inválida**: chaves faltando ou valores fora das categorias permitidas.
@@ -171,18 +161,23 @@ Carregar com `datasets.load_dataset("json", data_files="data/alertas_soc.jsonl")
 
 ```python
 from sklearn.model_selection import GroupShuffleSplit
+from datasets import DatasetDict
+
+splits = DatasetDict({"train": train, "validation": val, "test": test})
+splits.push_to_hub("seu-usuario/alertas-soc-splits", private=True)
 ```
+
+Os notebooks das fases seguintes carregam os splits com `load_dataset("seu-usuario/alertas-soc-splits")`.
 
 ### 2.4 Checklist de saída
 
 - [ ] Relatório curto: nº de exemplos antes e depois, duplicatas removidas, rótulos corrigidos, distribuição de classes por split.
-- [ ] `data/splits/train.jsonl`, `val.jsonl` e `test.jsonl` salvos.
+- [ ] Splits treino/validação/teste publicados como privados no Hub.
 
 ---
 
 ## Fase 3 — Tokenização
 
-**Tempo estimado:** 20 min
 **Objetivo da fase:** converter os exemplos em tokens com o tokenizador do próprio modelo, no formato do seu chat template.
 
 ### 3.1 Formato conversacional prompt/completion
@@ -218,7 +213,7 @@ print(texto)
 
 > **Regra de ouro:** sempre o tokenizador do **mesmo modelo** que será treinado, e o **mesmo template e prompt de sistema** no treino e na inferência (Fase 7). Divergência aqui corrompe o modelo de forma silenciosa.
 
-### 3.3 Máscara de loss (só a resposta ensina)
+### 3.3 Máscara de loss
 
 O modelo deve ser penalizado apenas por errar a **triagem**, não por "prever" o alerta. No formato prompt/completion, o `SFTTrainer` calcula o loss só na completion. **Verifique isso em vez de confiar:**
 
@@ -250,7 +245,6 @@ lens = [len(tokenizer.apply_chat_template(ex["prompt"] + ex["completion"])) for 
 
 ## Fase 4 — Execução do treinamento
 
-**Tempo estimado:** 40 min (o treino leva cerca de 15 min numa T4. Use o tempo de espera para ler as curvas)
 **Objetivo da fase:** o modelo vê os exemplos de treino repetidamente e ajusta os pesos para errar menos, enquanto se acompanham as curvas de loss.
 
 ### 4.1 Treino com LoRA + TRL
@@ -272,10 +266,14 @@ trainer = SFTTrainer(
     processing_class=tokenizer,
 )
 trainer.train()
-trainer.save_model("outputs/soc-triage-lora")
+
+repo_id = "seu-usuario/soc-triage-qwen2.5-0.5b-lora"
+trainer.model.push_to_hub(repo_id, private=True)
 ```
 
-### 4.2 Leitura das curvas de loss (treino × validação)
+> Enviar o adaptador ao Hub logo após o treino é a cópia de segurança: se o runtime do Colab desconectar, a avaliação da Fase 6 recarrega o adaptador do Hub sem precisar treinar de novo.
+
+### 4.2 Leitura das curvas de loss
 
 | Padrão observado | Diagnóstico | Ação |
 |---|---|---|
@@ -287,7 +285,7 @@ trainer.save_model("outputs/soc-triage-lora")
 ### 4.3 Checklist de saída
 
 - [ ] Gráfico das duas curvas com 2 a 3 frases de diagnóstico.
-- [ ] Adaptador LoRA salvo.
+- [ ] Adaptador LoRA enviado como privado ao Hub.
 - [ ] Tempo de treino e VRAM de pico anotados (confirma a viabilidade on-premises da Fase 1).
 
 ---
@@ -400,10 +398,11 @@ Responder em até 5 linhas: **o fine-tuning valeu a pena em relação ao baselin
 
 ## Fase 7 — Publicação
 
-**Tempo estimado:** 25 min
 **Objetivo da fase:** disponibilizar o modelo para uso, garantir que ele funciona fora do notebook e definir como seria acompanhado em produção.
 
 ### 7.1 Publicar no Hugging Face Hub (privado)
+
+Na Fase 4 o adaptador já foi enviado como cópia de segurança. Aqui se publica a **versão final** (depois da iteração da Fase 6) junto com o tokenizador:
 
 ```python
 repo_id = "seu-usuario/soc-triage-qwen2.5-0.5b-lora"
@@ -424,9 +423,9 @@ tokenizer.push_to_hub(repo_id, private=True)
 - Métricas da Fase 6, incluindo a comparação com o baseline e o recall de "crítica".
 - **Uso responsável:** assistente de triagem com revisão humana obrigatória.
 
-### 7.3 Script de inferência em sessão limpa
+### 7.3 Notebook de inferência em sessão limpa
 
-`src/inference.py`, rodado num **runtime novo** do Colab, sem nada do notebook de treino:
+Notebook separado (`07_inferencia.ipynb`), aberto num **runtime novo** do Colab, sem nada do notebook de treino. Só a célula padrão de setup, o código abaixo e os alertas de teste carregados de `load_dataset("seu-usuario/alertas-soc-splits", split="test")`:
 
 ```python
 import json
@@ -464,19 +463,7 @@ Em até meia página, descrever:
 
 - [ ] Adaptador publicado como privado no Hub.
 - [ ] Model card completo.
-- [ ] `src/inference.py` funcionando em sessão limpa.
+- [ ] `07_inferencia.ipynb` funcionando em sessão limpa.
 - [ ] Discussão de acompanhamento em produção.
 
 ---
-
-## Rubrica de avaliação
-
-| Fase | Critério | Peso |
-|---|---|---|
-| 1 | Objetivo, métricas e baseline registrados antes do treino | 10% |
-| 2 | Defeitos do dataset encontrados e split sem vazamento | 15% |
-| 3 | Template correto e máscara de loss verificada | 10% |
-| 4 | Diagnóstico correto das curvas de loss | 15% |
-| 5 | Estratégia e hiperparâmetros justificados | 10% |
-| 6 | Comparação com baseline, recall de crítico, iteração e conclusão | 30% |
-| 7 | Publicação, model card e inferência em sessão limpa | 10% |
