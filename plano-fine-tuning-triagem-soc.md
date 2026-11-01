@@ -4,7 +4,7 @@
 
 ### Problema
 
-Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Mesmo quando o pipeline já enriquece cada alerta com contexto (criticidade do ativo, perfil do usuário, reputação de IOC, histórico), o analista de nível 1 (L1) ainda precisa ler alerta por alerta e aplicar a política de severidade da casa para decidir se é falso positivo, qual a severidade real e por quê. Essa decisão repetitiva consome a maior parte do tempo do L1. Ela também varia entre analistas e turnos, o que gera *alert fatigue*, triagens inconsistentes e atraso na resposta a incidentes reais.
+Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Mesmo quando o pipeline já enriquece cada alerta com contexto (criticidade do ativo, perfil do usuário, reputação de IOC, histórico), o analista de nível 1 (L1) ainda precisa ler alerta por alerta e aplicar a política de severidade da organização para decidir se é falso positivo, qual a severidade real e por quê. Essa decisão repetitiva consome a maior parte do tempo do L1. Ela também varia entre analistas e turnos, o que gera *alert fatigue*, triagens inconsistentes e atraso na resposta a incidentes reais.
 
 ### Onde o fine-tuning aplica
 
@@ -20,7 +20,7 @@ Alerta bruto
 Alerta enriquecido
    │
    ▼
-[Modelo ajustado] gera triagem estruturada seguindo a política da casa  ← FINE-TUNING (este projeto)
+[Modelo ajustado] gera triagem estruturada seguindo a política da organização  ← FINE-TUNING (este projeto)
    │
    ▼
 [Analista L1]     valida a triagem                                       ← humano no circuito
@@ -53,9 +53,9 @@ A partir de um **alerta já enriquecido**, produzir:
 
 Para caber no tempo do projeto, os alunos **não geram dados do zero**. Eles recebem:
 
-- `data/alertas_soc.jsonl`: cerca de 1.500 alertas sintéticos enriquecidos e rotulados segundo a política da casa (Fase 1). O arquivo contém **defeitos propositais** (duplicatas, JSON inválido, rótulos inconsistentes com a política) para a auditoria da Fase 2.
+- `data/alertas_soc.jsonl`: cerca de 1.500 alertas sintéticos enriquecidos e rotulados segundo a política da organização (Fase 1). O arquivo contém **defeitos propositais** (duplicatas, JSON inválido, rótulos inconsistentes com a política) para a auditoria da Fase 2.
 - `data/amostra_baseline.jsonl`: 20 alertas, fora do dataset principal, usados no teste de necessidade da Fase 1.
-- `docs/politica_severidade.md`: a política de severidade da casa (resumida na Fase 1).
+- `docs/politica_severidade.md`: a política de severidade da organização (resumida na Fase 1).
 
 ### Entregáveis por fase
 
@@ -82,7 +82,7 @@ Para caber no tempo do projeto, os alunos **não geram dados do zero**. Eles rec
 - **Saída:** JSON com `veredito`, `severidade` e `justificativa`.
 - **Tipo:** fine-tuning supervisionado (SFT) de um LLM pequeno, com saída em formato restrito.
 
-### 1.2 Política de severidade da casa (o que o modelo deve aprender)
+### 1.2 Política de severidade da organização (o que o modelo deve aprender)
 
 A severidade **não** depende só do sinal técnico. Depende da combinação com o contexto. Exemplo resumido:
 
@@ -190,7 +190,7 @@ from sklearn.model_selection import GroupShuffleSplit
 Converter cada exemplo para o formato que o `SFTTrainer` (TRL) entende:
 
 ```python
-SYSTEM = "Você é um analista de SOC. Aplique a política de severidade da casa e responda apenas com o JSON da triagem."
+SYSTEM = "Você é um analista de SOC. Aplique a política de severidade da organização e responda apenas com o JSON da triagem."
 
 def to_conversation(ex):
     return {
@@ -435,7 +435,7 @@ from peft import PeftModel
 
 BASE_ID = "Qwen/Qwen2.5-0.5B-Instruct"
 REPO_ID = "seu-usuario/soc-triage-qwen2.5-0.5b-lora"
-SYSTEM = "Você é um analista de SOC. Aplique a política de severidade da casa e responda apenas com o JSON da triagem."
+SYSTEM = "Você é um analista de SOC. Aplique a política de severidade da organização e responda apenas com o JSON da triagem."
 
 tokenizer = AutoTokenizer.from_pretrained(REPO_ID)
 model = PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(BASE_ID, device_map="auto"), REPO_ID)
@@ -457,7 +457,7 @@ def triar(alerta: str, contexto: str) -> dict:
 Em até meia página, descrever:
 
 - **Feedback do analista:** cada triagem validada ou corrigida pelo L1 vira dado novo para o próximo ciclo (Fase 2).
-- **Drift:** mudança na política da casa ou novos tipos de alerta. Sinal de alerta: queda na concordância analista-modelo.
+- **Drift:** mudança na política da organização ou novos tipos de alerta. Sinal de alerta: queda na concordância analista-modelo.
 - **Métricas de produção:** concordância analista-modelo, recall de críticos confirmados e tempo médio de triagem.
 
 ### 7.5 Checklist de saída
