@@ -4,11 +4,11 @@
 
 ### Problema
 
-Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Mesmo quando o pipeline de alertas do SOC, ou seja, as etapas automáticas de coleta, normalização e enriquecimento detalhadas abaixo, já entrega cada alerta com contexto (criticidade do ativo, perfil do usuário, reputação de IOC, histórico), o analista de nível 1 (L1) ainda precisa ler alerta por alerta e aplicar a política de severidade da organização para decidir se é falso positivo, qual a severidade real e por quê. Essa decisão repetitiva consome a maior parte do tempo do L1. Ela também varia entre analistas e turnos, o que gera *alert fatigue*, triagens inconsistentes e atraso na resposta a incidentes reais.
+Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Mesmo quando as etapas automáticas de coleta, normalização e enriquecimento (detalhadas abaixo) já entregam cada alerta com contexto (criticidade do ativo, perfil do usuário, reputação de IOC, histórico), o analista de nível 1 (L1) ainda precisa ler alerta por alerta e aplicar a política de severidade da organização para decidir se é falso positivo, qual a severidade real e por quê. Essa decisão repetitiva consome a maior parte do tempo do L1. Ela também varia entre analistas e turnos, o que gera *alert fatigue*, triagens inconsistentes e atraso na resposta a incidentes reais.
 
 ### Onde o fine-tuning aplica
 
-Num SOC real, a triagem é um pipeline. O fine-tuning se aplica a **uma única etapa**:
+Num SOC real, o alerta passa por um fluxo de etapas até chegar à resposta. O fine-tuning se aplica a **uma única etapa**:
 
 ```
 Alerta bruto
