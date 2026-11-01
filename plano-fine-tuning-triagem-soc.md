@@ -4,470 +4,508 @@
 
 ### Problema
 
-Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Analistas de nível 1 (L1) gastam a maior parte do tempo **triando** esses alertas: decidindo se é falso positivo, qual a severidade real, e qual ação tomar. Isso gera *alert fatigue* e atraso na resposta a incidentes reais.
+Um SOC recebe centenas a milhares de alertas por dia (SIEM, EDR, IDS/IPS, proxy, e-mail). Analistas de nível 1 (L1) gastam a maior parte do tempo **triando** esses alertas: decidindo se é falso positivo, qual a severidade real e por quê. Isso gera *alert fatigue* e atraso na resposta a incidentes reais.
 
-O projeto consiste em fazer o **fine-tuning de um modelo de linguagem pequeno** para, a partir da descrição textual de um alerta, produzir uma **triagem estruturada**:
+### Onde o fine-tuning entra (e onde não entra)
+
+Num SOC real, a triagem é um pipeline. O fine-tuning se aplica a **uma única etapa**:
+
+```
+Alerta bruto
+   │
+   ▼
+[Enriquecimento]  CMDB (criticidade do ativo), IAM (perfil do usuário),
+   │              Threat Intel (reputação de IOC), histórico do SIEM   ← NÃO é fine-tuning (integração/RAG)
+   ▼
+Alerta enriquecido
+   │
+   ▼
+[Modelo ajustado] gera triagem estruturada seguindo a política da casa  ← FINE-TUNING (este projeto)
+   │
+   ▼
+[Analista L1]     valida a triagem                                       ← humano no circuito
+   │
+   ▼
+[SOAR]            executa o playbook de resposta                         ← NÃO é fine-tuning (automação)
+```
+
+**Por que o fine-tuning se justifica nesta etapa:**
+
+- **Privacidade:** os alertas contêm hosts, usuários e IPs internos e não podem sair do ambiente. Um modelo pequeno ajustado roda on-premises.
+- **Volume e custo:** com milhares de alertas por dia, um modelo pequeno ajustado é muito mais barato e rápido por alerta do que um modelo grande via API.
+- **Consistência:** o modelo aprende a aplicar sempre a **política de severidade da casa** e a devolver sempre o mesmo formato JSON, coisa que um modelo pequeno não faz de forma confiável só com prompt.
+
+**O que fica de fora de propósito:** mapeamento MITRE, ação de resposta e consulta a bases externas. É conhecimento que muda rápido ou que é determinístico, e por isso pertence ao enriquecimento ou ao SOAR, não aos pesos do modelo.
+
+### Tarefa do modelo
+
+A partir de um **alerta já enriquecido**, produzir:
 
 ```json
 {
   "veredito": "falso_positivo | verdadeiro_positivo",
   "severidade": "baixa | media | alta | critica",
-  "categoria_mitre": "ex: T1059 - Command and Scripting Interpreter",
-  "acao_recomendada": "ex: isolar host e escalar para L2",
-  "justificativa": "explicação curta em linguagem natural"
+  "justificativa": "explicação curta citando o sinal técnico e o contexto"
 }
 ```
 
+### Material fornecido pelo professor
+
+Para caber no tempo do projeto, os alunos **não geram dados do zero**. Eles recebem:
+
+- `data/alertas_soc.jsonl`: cerca de 1.500 alertas sintéticos enriquecidos e rotulados segundo a política da casa (Fase 1). O arquivo contém **defeitos propositais** (duplicatas, JSON inválido, rótulos inconsistentes com a política) para a auditoria da Fase 2.
+- `data/amostra_baseline.jsonl`: 20 alertas, fora do dataset principal, usados no teste de necessidade da Fase 1.
+- `docs/politica_severidade.md`: a política de severidade da casa (resumida na Fase 1).
+
+### Duração e ambiente
+
+- Tempo total estimado: **cerca de 4 horas**, com o tempo estimado indicado em cada fase.
+- Ambiente: Google Colab ou Kaggle com GPU T4 (gratuita).
+- Bibliotecas: `transformers`, `datasets`, `peft`, `trl`, `evaluate`, `huggingface_hub`, `scikit-learn`.
 
 ### Estrutura de pastas no repositório
 
 ```
 fine-tuning-project/
 ├── plano-fine-tuning-triagem-soc.md   <- este arquivo
+├── docs/
+│   └── politica_severidade.md
 ├── data/
-│   ├── raw/          # fontes brutas (MITRE, logs sintéticos, templates)
-│   ├── processed/    # dataset limpo e padronizado
-│   └── splits/        # train.jsonl, val.jsonl, test.jsonl
+│   ├── alertas_soc.jsonl       # fornecido (com defeitos propositais)
+│   ├── amostra_baseline.jsonl  # fornecido
+│   └── splits/                 # train.jsonl, val.jsonl, test.jsonl (gerados na Fase 2)
 ├── notebooks/
-│   ├── 01_planejamento.ipynb
+│   ├── 01_planejamento_baseline.ipynb
 │   ├── 02_preparacao_dados.ipynb
 │   ├── 03_tokenizacao.ipynb
-│   ├── 04_treinamento.ipynb
-│   ├── 05_configuracao_hparams.ipynb
+│   ├── 04_05_treinamento.ipynb
 │   ├── 06_avaliacao.ipynb
 │   └── 07_publicacao.ipynb
 ├── src/
-│   ├── data_utils.py
-│   ├── metrics.py
 │   └── inference.py
 └── model_card.md
 ```
 
 ### Entregáveis por fase
 
-| Fase | Entregável |
-|---|---|
-| 1. Planejamento | Documento de objetivo + ficha de seleção do modelo |
-| 2. Preparação dos dados | Dataset versionado (train/val/test) + relatório de qualidade |
-| 3. Tokenização | Notebook de tokenização + análise de distribuição de tokens |
-| 4. Execução do treinamento | Script/notebook de treino + checkpoints |
-| 5. Estratégia de ajustes | Tabela de hiperparâmetros testados + justificativa da escolha final |
-| 6. Avaliação | Relatório de métricas no conjunto de teste + matriz de confusão |
-| 7. Publicação | Modelo privado no Hugging Face Hub + model card + script de inferência a partir do Hub |
+| Fase | Tempo estimado | Entregável |
+|---|---|---|
+| 1. Planejamento | 25 min | Ficha de objetivo e modelo + resultado do teste de necessidade (baseline) |
+| 2. Preparação dos dados | 25 min | Relatório de auditoria + splits treino/validação/teste |
+| 3. Tokenização | 20 min | Histograma de tokens + verificação da máscara de loss |
+| 4. Execução do treinamento | 40 min | Curvas de loss com diagnóstico escrito + adaptador LoRA salvo |
+| 5. Estratégia de ajustes | 15 min | Configuração justificada (estratégia + hiperparâmetros) |
+| 6. Avaliação | 60 min | Tabela baseline × fine-tuned + matriz de confusão + uma iteração |
+| 7. Publicação | 25 min | Modelo privado no Hub + model card + script de inferência |
 
 ---
 
 ## Fase 1 — Planejamento do objetivo e do modelo
 
-**Objetivo da fase:** decidir exatamente o que o modelo deve fazer, como medir sucesso, e qual modelo base usar.
+**Tempo estimado:** 25 min
+**Objetivo da fase:** definir o que o modelo deve fazer, como saber se funcionou, provar que o fine-tuning é necessário e escolher o modelo base.
 
 ### 1.1 Definição da tarefa
 
-- **Entrada:** texto descritivo do alerta (campo livre, estilo "log/alerta" — ex.: origem, host, usuário, processo, hash, IP).
-- **Saída:** JSON estruturado com veredito, severidade, categoria MITRE ATT&CK, ação recomendada e justificativa.
-- **Tipo de tarefa:** fine-tuning supervisionado tipo *instruction following* (SFT) sobre um LLM decoder-only, com saída em formato restrito.
+- **Entrada:** alerta enriquecido (sinal técnico + contexto).
+- **Saída:** JSON com `veredito`, `severidade` e `justificativa`.
+- **Tipo:** fine-tuning supervisionado (SFT) de um LLM pequeno, com saída em formato restrito.
 
-### 1.2 Critério de sucesso (como saber se funcionou)
+### 1.2 Política de severidade da casa (o que o modelo deve aprender)
 
-Definir **antes** de treinar, para evitar mover a meta depois:
+A severidade **não** depende só do sinal técnico. Depende da combinação com o contexto. Exemplo resumido:
 
-- Acurácia de veredito (falso positivo / verdadeiro positivo) ≥ 85% no conjunto de teste.
-- **Recall de "crítico" ≥ 90%** (métrica de negócio prioritária — perder um alerta crítico é o pior erro possível em um SOC).
-- JSON válido (parseável) em ≥ 98% das saídas.
-- Justificativa coerente com o veredito em avaliação qualitativa (checklist humano ou LLM-as-judge) em amostra de 30 casos.
+| Sinal técnico | Ativo crítico (DC, servidor financeiro) | Ativo comum | Ativo de laboratório |
+|---|---|---|---|
+| Forte (ex.: PowerShell codificado filho do Outlook, IOC com reputação maliciosa) | crítica | alta | media |
+| Moderado (ex.: login fora do horário, ferramenta administrativa incomum) | alta | media | baixa |
+| Fraco e recorrente (ex.: mesmo alerta > 50 vezes em 7 dias sem incidente) | media | baixa | baixa (falso positivo provável) |
 
-> **Ponto de discussão em aula:** por que recall de "crítico" é mais importante que acurácia geral? Ligar ao conceito de custo assimétrico de erro em segurança (um falso negativo pode significar um ataque não detectado).
+> **Ponto de discussão:** o mesmo PowerShell é crítico num controlador de domínio e médio numa máquina de laboratório. É essa política, aplicada de forma consistente, que justifica ajustar o modelo. Um modelo genérico não conhece o critério da sua empresa.
 
-### 1.3 Escolha do modelo base
+### 1.3 Critério de sucesso (definido antes de treinar)
 
-Critérios de seleção e exemplos de modelos candidatos no Hugging Face Hub:
-
-| Critério | Pergunta a responder |
+| Métrica | Meta |
 |---|---|
-| Tarefa | O modelo é instruction-tuned (aceita chat template) ou é base cru? |
-| Licença | Permite uso educacional/comercial? Exige gated access? |
-| Hardware | Cabe em GPU gratuita (T4/16GB, Colab/Kaggle) com QLoRA 4-bit? |
-| Idioma | Tem bom desempenho em português (alertas podem estar em PT-BR)? |
-| Tamanho | Compatível com tempo de treino de uma aula/sprint (≤ 1-3B parâmetros)? |
+| JSON válido com as 3 chaves | ≥ 98% |
+| Acurácia de veredito | ≥ 85% |
+| **Recall de severidade "crítica"** | **≥ 90%** (métrica de negócio: perder um crítico é o pior erro) |
+| Justificativa coerente (checklist humano, 10 casos) | ≥ 8 de 10 |
+| **Ganho sobre o baseline** | O fine-tuned precisa superar o baseline nas métricas acima |
 
-Candidatos recomendados (ordem de preferência para este projeto):
+### 1.4 Teste de necessidade (baseline)
 
-1. **`Qwen/Qwen2.5-1.5B-Instruct`** — licença Apache 2.0, sem *gating*, bom suporte multilíngue, ótimo custo/benefício para QLoRA em GPU única.
-2. **`HuggingFaceTB/SmolLM2-1.7B-Instruct`** — Apache 2.0, feito explicitamente para fine-tuning educacional, leve.
-3. **`microsoft/Phi-3.5-mini-instruct`** — licença MIT, forte em seguir formato estruturado (JSON), mais pesado (3.8B).
-4. **`meta-llama/Llama-3.2-3B-Instruct`** — ótima qualidade, porém *gated* (exige aprovação de licença na Meta/HF), considerar apenas se o aluno já tem acesso aprovado.
+Antes de decidir ajustar, prove que o prompt sozinho não basta:
 
-> **Decisão sugerida para a turma:** usar `Qwen2.5-1.5B-Instruct` como padrão (evita bloqueios de licença gated no meio da aula), permitindo que grupos avançados testem alternativas.
+1. Rodar o modelo base escolhido com um **prompt few-shot** (política de severidade + 3 exemplos) sobre `data/amostra_baseline.jsonl`.
+2. Contar: quantas saídas são JSON válido? Quantas severidades seguem a política?
+3. Registrar o resultado. Ele será comparado formalmente na Fase 6.
 
-### 1.4 Checklist de saída da Fase 1
+> Se o baseline já atingir as metas, a resposta correta é **não fazer fine-tuning**. Isso precisa ser dito no relatório. Para fins didáticos o projeto segue adiante, mas o aluno deve saber reconhecer esse caso.
 
-- [ ] Documento de 1 página com: problema, entrada/saída, critério de sucesso quantitativo.
-- [ ] Ficha de seleção do modelo preenchida (tabela de critérios acima) com o modelo escolhido.
-- [ ] Verificação de licença do modelo escolhido (link para a licença no model card do Hub).
-- [ ] Verificação de hardware disponível (Colab/Kaggle GPU, ou GPU local) e decisão: full fine-tuning, LoRA ou QLoRA.
+### 1.5 Escolha do modelo base
+
+| Critério | Pergunta |
+|---|---|
+| Tarefa | É instruction-tuned (tem chat template)? |
+| Licença | Permite uso educacional e comercial? Exige acesso *gated*? |
+| Hardware | Treina numa T4 dentro do tempo disponível? |
+| Idioma | Lida bem com português? |
+| Implantação | É pequeno o bastante para rodar on-premises em volume? |
+
+Decisão para o projeto:
+
+- **Padrão: `Qwen/Qwen2.5-0.5B-Instruct`.** Licença Apache 2.0, sem *gating*, multilíngue, treina em cerca de 15 min numa T4.
+- **Alternativa (GPU melhor ou tempo extra): `Qwen/Qwen2.5-1.5B-Instruct`.** Mesma família e licença, mais capacidade para a justificativa.
+
+### 1.6 Checklist de saída
+
+- [ ] Ficha com tarefa, métricas-alvo e modelo escolhido (com link da licença).
+- [ ] Resultado do baseline registrado (JSON válido e acertos de severidade em 20 casos).
 
 ---
 
 ## Fase 2 — Preparação dos dados
 
-**Objetivo da fase:** reunir exemplos representativos, limpar, padronizar e dividir em treino/validação/teste.
+**Tempo estimado:** 25 min
+**Objetivo da fase:** auditar o dataset fornecido, limpar, padronizar e dividir em treino, validação e teste.
 
-### 2.1 Fontes de dados
-
-Como não existe (nem deveria existir publicamente) um dataset massivo de alertas reais de SOC rotulados, o projeto usa uma combinação de fontes:
-
-1. **Taxonomia MITRE ATT&CK** (`attack.mitre.org` ou dataset `mitre-attack` no Hub) — para gerar categorias e vocabulário técnico realista de técnicas de ataque.
-2. **Templates sintéticos de alertas** — o aluno escreve/gera templates parametrizados por tipo de fonte (EDR, SIEM, proxy, e-mail/phishing, IDS de rede), variando host, usuário, processo, IP, hash etc.
-3. **Geração assistida por LLM** — usar um modelo generalista (ex.: via API ou localmente) para expandir os templates em centenas de variações realistas, **sempre com revisão humana** antes de usar como rótulo verdadeiro.
-4. **Datasets públicos de apoio** (opcional, para enriquecer vocabulário, não necessariamente para rótulos finais): buscar no Hugging Face Hub por termos como `security alerts`, `phishing`, `log anomaly`, `cyber threat intelligence`.
-
-> **Ponto de atenção ético/técnico:** dados sintéticos devem ser claramente documentados como sintéticos no model card final. Nunca usar dados reais de incidentes de empresas sem anonimização e autorização.
-
-### 2.2 Limpeza e padronização
-
-- Remover duplicatas exatas e quase-duplicatas (ex.: `datasets.Dataset.unique()` ou hashing do texto normalizado).
-- Padronizar codificação (UTF-8), remover caracteres de controle, normalizar espaços.
-- Padronizar o **schema de saída** (sempre as mesmas chaves JSON, mesmos valores categóricos possíveis — isso é crítico para a Fase 3 e Fase 6).
-- Balancear classes minimamente: garantir que "crítico" e "falso positivo" tenham exemplos suficientes (evitar dataset 95% "baixa severidade").
-- Validar que todo exemplo tem JSON de saída **sintaticamente válido** (`json.loads` sem erro).
-
-### 2.3 Formato final do exemplo (estilo instrução)
+### 2.1 Formato do exemplo
 
 ```json
 {
-  "instruction": "Você é um analista de SOC. Analise o alerta abaixo e produza a triagem em JSON.",
-  "input": "EDR ALERT | Host: WIN-FIN03 | Usuário: j.silva | Processo: powershell.exe -enc JAB... | Pai: outlook.exe | Hash: 3f2a...",
-  "output": "{\"veredito\": \"verdadeiro_positivo\", \"severidade\": \"alta\", \"categoria_mitre\": \"T1059.001 - PowerShell\", \"acao_recomendada\": \"isolar host e coletar memória\", \"justificativa\": \"PowerShell codificado iniciado por processo de e-mail é padrão típico de macro malicioso.\"}"
+  "template_id": "edr_ps_encoded_07",
+  "alerta": "EDR | Host: SRV-FIN01 | Usuário: j.silva | Processo: powershell.exe -enc JAB... | Pai: outlook.exe",
+  "contexto": "Ativo: servidor financeiro (criticidade alta) | Usuário: analista financeiro, sem privilégio admin | Reputação do hash: desconhecida | Ocorrências em 7 dias: 1",
+  "triagem": {"veredito": "verdadeiro_positivo", "severidade": "critica", "justificativa": "PowerShell codificado iniciado pelo Outlook em servidor financeiro de alta criticidade, padrão típico de macro maliciosa."}
 }
 ```
 
-Usar `datasets.Dataset.from_list(...)` para carregar e manipular com a biblioteca `datasets` do Hugging Face.
+### 2.2 Auditoria (encontrar os defeitos propositais)
 
-### 2.4 Divisão treino/validação/teste
+Carregar com `datasets.load_dataset("json", data_files="data/alertas_soc.jsonl")` e verificar:
 
-- Proporção sugerida: **70% treino / 15% validação / 15% teste**.
-- Estratificar a divisão por `severidade` e `veredito` (usar `train_test_split` com `stratify=` manual, já que `datasets` puro não estratifica — pode-se usar `scikit-learn` só para gerar os índices).
-- Garantir que **nenhum template-base** apareça simultaneamente em treino e teste (evita vazamento de dados / *data leakage* por memorização de template).
+- [ ] **Duplicatas** exatas no par `alerta` + `contexto`.
+- [ ] **Triagem inválida**: chaves faltando ou valores fora das categorias permitidas.
+- [ ] **Rótulos inconsistentes com a política** da Fase 1. Ex.: sinal forte em ativo crítico rotulado como "baixa". Corrigir ou remover, e registrar quantos.
+- [ ] **Distribuição de classes**: há exemplos suficientes de "crítica" e de "falso_positivo"?
 
-### 2.5 Checklist de saída da Fase 2
+> **Ponto de discussão:** um rótulo errado no treino ensina o modelo a errar. Em segurança, um único padrão "crítico rotulado como baixa" repetido vira um ponto cego do modelo.
 
-- [ ] Dataset consolidado em `data/processed/` com schema único e documentado.
-- [ ] Relatório de qualidade: nº de exemplos, distribuição de classes, nº de duplicatas removidas.
-- [ ] Arquivos `train.jsonl`, `val.jsonl`, `test.jsonl` salvos em `data/splits/`.
-- [ ] (Opcional, recomendado) Dataset publicado como **privado** no Hugging Face Hub via `datasets.push_to_hub()`.
+### 2.3 Divisão treino/validação/teste
+
+- Proporção: **70% / 15% / 15%**.
+- **Dividir por `template_id`** (todos os exemplos de um template ficam no mesmo split). Isso evita *data leakage*: se variações do mesmo template caem no treino e no teste, o modelo "acerta" o teste por memorização e a métrica fica inflada.
+- Conferir se a distribuição de severidade ficou parecida nos três splits.
+
+```python
+from sklearn.model_selection import GroupShuffleSplit
+```
+
+### 2.4 Checklist de saída
+
+- [ ] Relatório curto: nº de exemplos antes e depois, duplicatas removidas, rótulos corrigidos, distribuição de classes por split.
+- [ ] `data/splits/train.jsonl`, `val.jsonl` e `test.jsonl` salvos.
 
 ---
 
 ## Fase 3 — Tokenização
 
-**Objetivo da fase:** converter cada exemplo em tokens usando o tokenizador do modelo escolhido, aplicando o template de chat correto.
+**Tempo estimado:** 20 min
+**Objetivo da fase:** converter os exemplos em tokens com o tokenizador do próprio modelo, no formato do seu chat template.
 
-### 3.1 Carregar o tokenizador correto
+### 3.1 Formato conversacional prompt/completion
+
+Converter cada exemplo para o formato que o `SFTTrainer` (TRL) entende:
+
+```python
+SYSTEM = "Você é um analista de SOC. Aplique a política de severidade da casa e responda apenas com o JSON da triagem."
+
+def to_conversation(ex):
+    return {
+        "prompt": [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": f"{ex['alerta']}\n{ex['contexto']}"},
+        ],
+        "completion": [
+            {"role": "assistant", "content": json.dumps(ex["triagem"], ensure_ascii=False)},
+        ],
+    }
+```
+
+### 3.2 Tokenizador e chat template
 
 ```python
 from transformers import AutoTokenizer
 
-model_id = "Qwen/Qwen2.5-1.5B-Instruct"
+model_id = "Qwen/Qwen2.5-0.5B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+texto = tokenizer.apply_chat_template(ex["prompt"] + ex["completion"], tokenize=False)
+print(texto)
 ```
 
-> **Regra de ouro:** sempre usar o tokenizador do **mesmo modelo** que será treinado. Tokenizadores diferentes têm vocabulários diferentes — usar o errado corrompe o treinamento silenciosamente.
+> **Regra de ouro:** sempre o tokenizador do **mesmo modelo** que será treinado, e o **mesmo template e prompt de sistema** no treino e na inferência (Fase 7). Divergência aqui corrompe o modelo de forma silenciosa.
 
-### 3.2 Aplicar o chat template do modelo
+### 3.3 Máscara de loss (só a resposta ensina)
 
-Modelos instruction-tuned têm um formato de conversa específico (system/user/assistant) embutido no tokenizador:
+O modelo deve ser penalizado apenas por errar a **triagem**, não por "prever" o alerta. No formato prompt/completion, o `SFTTrainer` calcula o loss só na completion. **Verifique isso em vez de confiar:**
+
+- Pegar um batch do `trainer` e decodificar apenas os tokens com `labels != -100`.
+- O texto decodificado deve conter **somente** o JSON da triagem.
+
+### 3.4 Distribuição de tokens
 
 ```python
-messages = [
-    {"role": "system", "content": "Você é um analista de SOC. Analise o alerta e produza a triagem em JSON."},
-    {"role": "user", "content": exemplo["input"]},
-    {"role": "assistant", "content": exemplo["output"]},
-]
-
-texto_formatado = tokenizer.apply_chat_template(messages, tokenize=False)
+lens = [len(tokenizer.apply_chat_template(ex["prompt"] + ex["completion"])) for ex in train]
 ```
 
-### 3.3 Tokenização e truncamento
+- Plotar o histograma e escolher `max_length` cobrindo cerca do percentil 99.
+- Exemplos muito longos fora da curva costumam indicar defeito de dado que escapou na Fase 2.
 
-- Definir `max_length` com base na análise de distribuição real (ver 3.4), não em um número arbitrário.
-- Usar `padding="max_length"` ou *dynamic padding* via `DataCollatorForLanguageModeling` / `DataCollatorForSeq2Seq` conforme a abordagem de treino escolhida na Fase 5.
-- **Mascarar o loss do prompt**: durante SFT, o modelo só deve ser penalizado por errar a *saída* (assistant), não por "prever" o prompt do usuário. Isso é feito atribuindo `-100` aos `labels` correspondentes ao trecho de instrução/input (o `SFTTrainer` da biblioteca `trl` faz isso automaticamente quando configurado corretamente).
+### 3.5 Checklist de saída
 
-### 3.4 Análise de distribuição de tokens (obrigatória)
-
-Antes de treinar, plotar o histograma do número de tokens por exemplo (prompt + resposta):
-
-```python
-lens = [len(tokenizer(ex)["input_ids"]) for ex in textos_formatados]
-```
-
-- Decidir `max_length` cobrindo ~ 95-99º percentil, sem desperdiçar memória com um valor excessivo.
-- Identificar outliers (exemplos anormalmente longos) — podem indicar erro de geração de dados na Fase 2.
-
-### 3.5 Checklist de saída da Fase 3
-
-- [ ] Notebook de tokenização com `apply_chat_template` aplicado corretamente.
-- [ ] Histograma de distribuição de tokens e `max_length` justificado.
-- [ ] Confirmação visual (decodificar um exemplo tokenizado de volta para texto) de que o template está correto.
-- [ ] Dataset tokenizado salvo (`.map()` com `datasets`, cacheado em disco).
+- [ ] Um exemplo impresso com o chat template aplicado.
+- [ ] Histograma de tokens e `max_length` justificado.
+- [ ] Evidência de que a máscara de loss cobre só o JSON da triagem.
 
 ---
 
-## Fase 5 (configuração) antes da Fase 4 (execução) — nota pedagógica
+## Nota sobre a ordem das Fases 4 e 5
 
-> Na prática de código, a **estratégia e configuração (Fase 5)** é decidida **antes** de rodar o treino (Fase 4) — é ela que determina o script de treino. O enunciado do projeto numera "Execução" como fase 4 e "Estratégia" como fase 5 porque são apresentadas nessa ordem didaticamente (primeiro "o que acontece durante o treino", depois "como configurar isso"). Ao executar o projeto, trate as duas como um ciclo: **configure (Fase 5) → execute (Fase 4) → avalie (Fase 6) → ajuste a configuração e repita**.
+> No código, a **configuração (Fase 5)** é definida **antes** de rodar o treino (Fase 4). As fases são numeradas nesta ordem porque primeiro se entende o que acontece durante o treino e depois como controlá-lo. Na execução, trate como ciclo: **configurar (5) → executar (4) → avaliar (6) → ajustar e repetir**. As duas fases ficam no mesmo notebook (`04_05_treinamento.ipynb`).
 
 ---
 
 ## Fase 4 — Execução do treinamento
 
-**Objetivo da fase:** o modelo vê os exemplos de treino repetidamente e ajusta pesos para errar menos, enquanto se monitora a curva de *loss*.
+**Tempo estimado:** 40 min (o treino leva cerca de 15 min numa T4. Use o tempo de espera para ler as curvas)
+**Objetivo da fase:** o modelo vê os exemplos de treino repetidamente e ajusta os pesos para errar menos, enquanto se acompanham as curvas de loss.
 
-### 4.1 Setup do treino com PEFT/LoRA + TRL
+### 4.1 Treino com LoRA + TRL
 
 ```python
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+import torch
+from transformers import AutoModelForCausalLM
 from peft import LoraConfig
 from trl import SFTTrainer, SFTConfig
 
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype="bfloat16",
-)
-
-model = AutoModelForCausalLM.from_pretrained(model_id, quantization_config=bnb_config)
-
-lora_config = LoraConfig(
-    r=16, lora_alpha=32, lora_dropout=0.05,
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-    task_type="CAUSAL_LM",
-)
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16)
 
 trainer = SFTTrainer(
     model=model,
-    train_dataset=dataset_train,
-    eval_dataset=dataset_val,
-    peft_config=lora_config,
-    args=SFTConfig(...),  # ver Fase 5 para os hiperparâmetros
+    train_dataset=train,
+    eval_dataset=val,
+    peft_config=lora_config,   # Fase 5
+    args=sft_config,           # Fase 5
+    processing_class=tokenizer,
 )
-
 trainer.train()
+trainer.save_model("outputs/soc-triage-lora")
 ```
 
-### 4.2 Monitoramento da curva de loss (o coração da fase)
-
-Acompanhar **treino vs. validação** a cada *eval_steps* (usar `report_to="tensorboard"` ou `wandb`):
+### 4.2 Leitura das curvas de loss (treino × validação)
 
 | Padrão observado | Diagnóstico | Ação |
 |---|---|---|
-| Loss de treino ↓ e loss de validação ↓ | Aprendizado saudável | Continuar / considerar mais épocas |
-| Loss de treino ↓ e loss de validação ↑ (ou estagna) | **Overfitting** — o modelo decorou exemplos específicos (ex.: hosts, hashes fixos dos templates) em vez do padrão geral | Reduzir épocas, aumentar `lora_dropout`, aumentar variedade de dados (voltar à Fase 2), reduzir `r` do LoRA |
-| Ambas estagnadas em valor alto | Underfitting | Aumentar `r`/`lora_alpha`, aumentar taxa de aprendizado, verificar se o template de chat/máscara de loss está correto (erro comum na Fase 3) |
-| Loss oscilando/explodindo (`NaN`) | Taxa de aprendizado alta demais, ou `bf16/fp16` mal configurado | Reduzir learning rate, verificar `gradient_clipping` |
+| Treino ↓ e validação ↓ | Aprendizado saudável | Manter |
+| Treino ↓ e validação ↑ ou estagnada | **Overfitting**: o modelo decorou os exemplos (hosts, usuários, frases do template) em vez de aprender a política | Menos épocas, mais `lora_dropout`, menor `r` |
+| Ambas altas e estagnadas | Underfitting | Maior `learning_rate` ou `r`. Conferir máscara e template (Fase 3) |
+| Oscilando ou `NaN` | Instabilidade | Menor `learning_rate`, conferir `fp16` |
 
-> **Atividade em sala:** cada aluno deve printar e anexar ao relatório o gráfico das duas curvas e escrever 2-3 frases de diagnóstico — essa é a evidência de que entendeu o conceito, não apenas rodou o código.
+### 4.3 Checklist de saída
 
-### 4.3 Checklist de saída da Fase 4
-
-- [ ] Gráfico de loss treino vs. validação, com diagnóstico escrito.
-- [ ] Checkpoints do adaptador LoRA salvos (`trainer.save_model()`).
-- [ ] Log de treino (tempo total, GPU usada, VRAM de pico) documentado — relevante para a Fase 1 (viabilidade de hardware).
+- [ ] Gráfico das duas curvas com 2 a 3 frases de diagnóstico.
+- [ ] Adaptador LoRA salvo.
+- [ ] Tempo de treino e VRAM de pico anotados (confirma a viabilidade on-premises da Fase 1).
 
 ---
 
 ## Fase 5 — Estratégia de ajustes e configuração
 
-**Objetivo da fase:** definir **como** o modelo será ajustado (full fine-tuning vs. PEFT) e com quais hiperparâmetros.
+**Tempo estimado:** 15 min
+**Objetivo da fase:** definir como o modelo será ajustado e com quais hiperparâmetros.
 
-### 5.1 Escolha da estratégia de ajuste
+### 5.1 Estratégia de ajuste
 
-| Estratégia | Quando usar | Custo |
+| Estratégia | Quando usar | Neste projeto |
 |---|---|---|
-| Full fine-tuning | Dataset grande, GPU com muita VRAM, necessidade de máxima qualidade | Alto (atualiza todos os pesos) |
-| **LoRA** | Caso padrão deste projeto — bom equilíbrio qualidade/custo | Baixo (treina ~0.1-1% dos parâmetros) |
-| QLoRA (LoRA + quantização 4-bit) | GPU gratuita limitada (Colab T4 16GB) | Muito baixo — **recomendado para este projeto** |
+| Full fine-tuning | Muitos dados e GPU grande | Não: custo alto e risco de overfitting com 1.500 exemplos |
+| **LoRA** | Caso geral: treina menos de 1% dos parâmetros | **Sim, com o modelo 0.5B em `fp16`** |
+| QLoRA (LoRA + 4-bit) | Modelo que não cabe na GPU em `fp16` | Só se usar o 1.5B ou maior |
 
-### 5.2 Hiperparâmetros a configurar e faixa inicial sugerida
+```python
+lora_config = LoraConfig(
+    r=16, lora_alpha=32, lora_dropout=0.05,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    task_type="CAUSAL_LM",
+)
+```
 
-| Hiperparâmetro | O que controla | Valor inicial sugerido | Sinal de ajuste |
+### 5.2 Hiperparâmetros
+
+| Hiperparâmetro | O que controla | Valor inicial | Quando mudar |
 |---|---|---|---|
-| `learning_rate` | Tamanho do passo de atualização dos pesos | `2e-4` (LoRA) | Loss oscila/explode → diminuir; loss não desce → aumentar |
-| `per_device_train_batch_size` | Nº de exemplos por passo, limitado pela VRAM | `4` (com `gradient_accumulation_steps=4`) | OOM (falta de memória) → diminuir e compensar com acumulação |
-| `num_train_epochs` | Quantas vezes o modelo vê o dataset completo | `3` | Validação piora antes do fim → reduzir (ou usar *early stopping*) |
-| `lora_r` / `lora_alpha` | Capacidade do adaptador LoRA | `r=16`, `alpha=32` | Underfitting → aumentar `r`; overfitting → diminuir |
-| `warmup_ratio` | Aquecimento da taxa de aprendizado | `0.03` | Instabilidade no início do treino → aumentar |
-| `weight_decay` | Regularização | `0.01` | Overfitting persistente → aumentar |
+| `learning_rate` | Tamanho do passo de ajuste dos pesos | `2e-4` | Oscila → diminuir. Não desce → aumentar |
+| `per_device_train_batch_size` | Exemplos por passo (limitado pela VRAM) | `8` | Falta de memória → reduzir e aumentar `gradient_accumulation_steps` |
+| `gradient_accumulation_steps` | Lote efetivo sem gastar mais VRAM | `2` (lote efetivo 16) | Compensar batch menor |
+| `num_train_epochs` | Quantas vezes o modelo vê o treino inteiro | `2` | Validação sobe antes do fim → reduzir |
+| `max_length` | Tamanho máximo da sequência | Fase 3 (percentil 99) | — |
 
-### 5.3 Metodologia de busca de hiperparâmetros
+```python
+sft_config = SFTConfig(
+    output_dir="outputs",
+    learning_rate=2e-4,
+    per_device_train_batch_size=8,
+    gradient_accumulation_steps=2,
+    num_train_epochs=2,
+    max_length=MAX_LENGTH,
+    eval_strategy="steps", eval_steps=20, logging_steps=10,
+    fp16=True,
+    report_to="tensorboard",
+)
+```
 
-Para fins didáticos (sem gastar GPU excessivamente), rodar uma **busca manual em grade pequena**, não uma busca automática cara:
+### 5.3 Checklist de saída
 
-1. Fixar `num_train_epochs=1` e testar 3 valores de `learning_rate` (ex.: `1e-4`, `2e-4`, `5e-4`) observando só a tendência inicial da curva de validação.
-2. Com o melhor `learning_rate`, treinar as 3 épocas completas.
-3. Documentar **todas** as combinações testadas em uma tabela — mesmo as que falharam (overfitting, instabilidade) — pois isso é parte da avaliação (processo, não só resultado final).
-
-### 5.4 Checklist de saída da Fase 5
-
-- [ ] Tabela de experimentos (hiperparâmetro × loss final treino/val × observação).
-- [ ] Justificativa escrita da configuração final escolhida.
-- [ ] Arquivo de configuração versionado (`SFTConfig`/`LoraConfig` salvos como JSON/YAML junto ao checkpoint).
+- [ ] Justificativa curta da estratégia (por que LoRA e não full fine-tuning) e dos valores escolhidos.
+- [ ] Configuração salva junto ao adaptador.
 
 ---
 
 ## Fase 6 — Avaliar o desempenho
 
-**Objetivo da fase:** medir o desempenho real no conjunto de **teste** (nunca visto durante treino ou ajuste de hiperparâmetros).
+**Tempo estimado:** 60 min (inclui uma iteração com novo treino)
+**Objetivo da fase:** medir no conjunto de **teste**, comparar com o baseline e iterar uma vez.
 
-### 6.1 Métricas quantitativas
+### 6.1 Métricas
 
-- **Validade de formato:** % de saídas que são JSON parseável com todas as chaves esperadas.
-- **Classificação (veredito, severidade, categoria MITRE):**
-  - Acurácia geral.
-  - Precision/Recall/F1 **por classe**, usando `evaluate` (`evaluate.load("f1")`, `evaluate.load("recall")`) ou `sklearn.metrics.classification_report`.
-  - **Matriz de confusão de severidade** — item obrigatório do relatório, destacando especificamente quantos casos "crítico" reais foram classificados como severidade menor (falso negativo caro).
-- **Geração (ação recomendada, justificativa):**
-  - Similaridade textual (ROUGE-L ou BLEU) contra a resposta de referência — métrica fraca, mas informativa como baseline.
-  - **LLM-as-judge**: usar um modelo maior (ou o próprio professor/colegas) para avaliar em escala 1-5 se a justificativa é coerente com o veredito, em amostra de 30-50 casos do teste.
+Gerar a triagem para todo o `test.jsonl` com `do_sample=False`. Rodar o **baseline da Fase 1** (prompt few-shot no modelo base) sobre o mesmo teste e preencher:
 
-### 6.2 Métrica de negócio (a mais importante deste projeto)
+| Métrica | Meta | Baseline (prompt) | Fine-tuned |
+|---|---|---|---|
+| JSON válido | ≥ 98% | | |
+| Acurácia de veredito | ≥ 85% | | |
+| F1 macro de severidade | — | | |
+| **Recall de "crítica"** | **≥ 90%** | | |
+| Justificativa coerente (10 casos) | ≥ 8/10 | | |
 
-Construir explicitamente a **matriz de custo de erro**:
+- Usar `sklearn.metrics.classification_report` e `confusion_matrix`.
+- **Matriz de confusão de severidade** obrigatória, destacando os críticos classificados como severidade menor.
+- Justificativa: checklist humano em 10 casos. A justificativa cita o sinal técnico? Cita o contexto? É coerente com a severidade?
 
-| Real → Previsto | Falso positivo previsto | Verdadeiro positivo previsto |
+### 6.2 Custo do erro (métrica de negócio)
+
+| Real \ Previsto | Severidade menor que a real | Severidade maior que a real |
 |---|---|---|
-| Real: falso positivo | ✅ OK | Custo baixo (analista perde tempo revisando) |
-| Real: verdadeiro positivo (crítico) | ❌ **Custo altíssimo** (ataque real ignorado) | ✅ OK |
+| Crítico | ❌ **Custo altíssimo**: ataque real fica na fila | — |
+| Baixo ou médio | — | Custo baixo: analista perde alguns minutos |
 
-Reportar explicitamente o **recall da classe "crítico"** comparado à meta definida na Fase 1 (≥ 90%). Se não atingida, isso direciona o ciclo de iteração.
+Por isso o recall de "crítica" pesa mais que a acurácia geral.
 
-### 6.3 Iterar
+### 6.3 Iterar (uma vez)
 
-Com base nos erros de avaliação, decidir **onde** voltar:
+Escolher **um** sintoma, fazer **uma** mudança, treinar de novo e medir:
 
-| Sintoma na avaliação | Provável causa | Voltar para |
+| Sintoma | Provável causa | Voltar para |
 |---|---|---|
-| JSON inválido com frequência | Template de saída inconsistente nos dados | Fase 2 (padronizar schema) |
-| Baixo recall em "crítico" | Poucos exemplos críticos no treino, ou classes desbalanceadas | Fase 2 (mais dados/balanceamento) |
-| Boa performance no treino, ruim no teste | Overfitting | Fase 5 (regularização, menos épocas) |
-| Erro sistemático em uma categoria MITRE específica | Dados insuficientes para aquela técnica | Fase 2 |
-| Justificativas incoerentes mas veredito correto | Modelo pequeno demais para raciocínio textual | Fase 1 (reconsiderar modelo base) |
+| JSON inválido frequente | Máscara ou template incorretos | Fase 3 |
+| Recall de "crítica" baixo | Poucos críticos no treino ou rótulos ruins | Fase 2 |
+| Treino bom e teste ruim | Overfitting | Fase 5 (menos épocas, menor `r`) |
+| Severidade certa, justificativa fraca | Capacidade do modelo | Fase 1 (testar o 1.5B) |
 
-### 6.4 Checklist de saída da Fase 6
+### 6.4 Conclusão obrigatória
 
-- [ ] Relatório de métricas completo no conjunto de teste (nunca usado antes).
-- [ ] Matriz de confusão de severidade com destaque para falsos negativos críticos.
-- [ ] Decisão documentada: "resultado satisfatório, seguir para publicação" OU "iterar, retornando à fase X pelo motivo Y".
+Responder em até 5 linhas: **o fine-tuning valeu a pena em relação ao baseline? Em quais métricas?** Se não superou, dizer isso também é um resultado válido.
+
+### 6.5 Checklist de saída
+
+- [ ] Tabela baseline × fine-tuned preenchida (antes e depois da iteração).
+- [ ] Matriz de confusão de severidade.
+- [ ] Registro da iteração: sintoma, mudança e efeito.
+- [ ] Conclusão sobre o valor do fine-tuning.
 
 ---
 
 ## Fase 7 — Publicação
 
-**Objetivo da fase:** disponibilizar o modelo para uso e acompanhar seu comportamento em produção.
+**Tempo estimado:** 25 min
+**Objetivo da fase:** disponibilizar o modelo para uso, garantir que ele funciona fora do notebook e definir como seria acompanhado em produção.
 
-**O que o aluno ganha com esta fase:**
-
-- **Prova de que o modelo funciona fora do notebook.** Carregar o modelo do Hub numa sessão limpa revela erros que o notebook de treino esconde: tokenizador ou chat template não salvos, JSON que só sai válido com os parâmetros de geração do notebook, latência real de inferência.
-- **Compromisso com as limitações.** O model card obriga a declarar publicamente que os dados são sintéticos, qual o recall de crítico e que o modelo exige revisão humana.
-- **Fechamento do ciclo.** A discussão de monitoramento mostra que o feedback de produção vira dado novo (volta à Fase 2).
-- **Portfólio** profissional no Hugging Face Hub.
-
-**Escopo:** obrigatórios são 7.1, 7.2 e 7.3. A demo (7.4) é opcional/bônus. O monitoramento (7.5) é apenas discussão escrita.
-
-### 7.1 Publicar no Hugging Face Hub (obrigatório, repositório privado)
+### 7.1 Publicar no Hugging Face Hub (privado)
 
 ```python
-repo_id = "seu-usuario/soc-triage-qwen2.5-1.5b-lora"
-model.push_to_hub(repo_id, private=True)
+repo_id = "seu-usuario/soc-triage-qwen2.5-0.5b-lora"
+trainer.model.push_to_hub(repo_id, private=True)
 tokenizer.push_to_hub(repo_id, private=True)
 ```
 
-- Publicar como **privado**: é um modelo de segurança treinado com dados sintéticos e não validado, então não deve ficar disponível publicamente por padrão.
-- Se usou LoRA, decidir entre publicar **apenas o adaptador** (leve, requer carregar o modelo base + `peft` na inferência) ou fazer `merge_and_unload()` e publicar os pesos completos (mais simples de consumir, maior tamanho). Justificar a escolha no model card.
+- **Privado** porque é um modelo de segurança treinado com dados sintéticos e não validado em produção.
+- Publicar apenas o **adaptador LoRA** (poucos MB), que é carregado sobre o modelo base na inferência.
 
-### 7.2 Model Card (obrigatório)
+### 7.2 Model card
 
-Criar `README.md`/`model_card.md` do repositório no Hub contendo, no mínimo:
+`README.md` do repositório no Hub com:
 
-- Descrição da tarefa e limitações (ex.: "treinado com dados **sintéticos**, não validado em ambiente de produção real").
-- Licença herdada do modelo base.
-- Métricas da Fase 6 (incluindo a métrica de negócio — recall de crítico).
-- **Aviso explícito de uso responsável:** este modelo é um **assistente de triagem**, não deve tomar decisão final sem revisão humana (*human-in-the-loop* obrigatório dado o risco de falso negativo em segurança).
+- Tarefa e **recorte**: o modelo tria alertas já enriquecidos e não substitui enriquecimento, SOAR nem analista.
+- Dados: **sintéticos**, gerados segundo uma política de severidade fictícia.
+- Licença herdada do modelo base (Apache 2.0).
+- Métricas da Fase 6, incluindo a comparação com o baseline e o recall de "crítica".
+- **Uso responsável:** assistente de triagem com revisão humana obrigatória.
 
-### 7.3 Script de inferência a partir do Hub (obrigatório)
+### 7.3 Script de inferência em sessão limpa
 
-Entregar `src/inference.py`, executado numa **sessão limpa** (novo runtime do Colab, sem variáveis do notebook de treino), que:
-
-1. Carrega o modelo e o tokenizador **direto do Hub** (`AutoModelForCausalLM.from_pretrained(repo_id)` ou modelo base + `PeftModel.from_pretrained(base, repo_id)`).
-2. Aplica o mesmo chat template e prompt de sistema usados no treino.
-3. Tria **5 alertas do conjunto de teste**, incluindo pelo menos 1 crítico e 1 falso positivo.
-4. Faz `json.loads` em cada saída e imprime o resultado ao lado do rótulo esperado.
+`src/inference.py`, rodado num **runtime novo** do Colab, sem nada do notebook de treino:
 
 ```python
+import json
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
-import json
 
-base_id = "Qwen/Qwen2.5-1.5B-Instruct"
-repo_id = "seu-usuario/soc-triage-qwen2.5-1.5b-lora"
+BASE_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+REPO_ID = "seu-usuario/soc-triage-qwen2.5-0.5b-lora"
+SYSTEM = "Você é um analista de SOC. Aplique a política de severidade da casa e responda apenas com o JSON da triagem."
 
-tokenizer = AutoTokenizer.from_pretrained(repo_id)
-model = PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(base_id), repo_id)
+tokenizer = AutoTokenizer.from_pretrained(REPO_ID)
+model = PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(BASE_ID, device_map="auto"), REPO_ID)
 
-def triar(alerta: str) -> dict:
+def triar(alerta: str, contexto: str) -> dict:
     messages = [
-        {"role": "system", "content": "Você é um analista de SOC. Analise o alerta e produza a triagem em JSON."},
-        {"role": "user", "content": alerta},
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": f"{alerta}\n{contexto}"},
     ]
-    inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
-    out = model.generate(inputs, max_new_tokens=256, do_sample=False)
+    inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to(model.device)
+    out = model.generate(inputs, max_new_tokens=200, do_sample=False)
     return json.loads(tokenizer.decode(out[0][inputs.shape[1]:], skip_special_tokens=True))
 ```
 
-> **Critério de aceite:** o script roda do início ao fim sem acesso a nenhum arquivo local do treino. Se falhar, o problema geralmente está no que **não** foi publicado (tokenizador, template, configuração do adaptador). Isso é exatamente o que a fase quer revelar.
+**Critério de aceite:** triar 5 alertas do teste (pelo menos 1 crítico e 1 falso positivo) e imprimir o resultado ao lado do rótulo esperado. Se falhar, o problema costuma ser algo que não foi publicado ou um prompt diferente do usado no treino.
 
-### 7.4 Demonstração (opcional / bônus)
+### 7.4 Acompanhamento em produção (discussão escrita)
 
-Publicar um **Hugging Face Space** com Gradio para demo interativa, reaproveitando a função `triar` do script acima:
+Em até meia página, descrever:
 
-```python
-import gradio as gr
+- **Feedback do analista:** cada triagem validada ou corrigida pelo L1 vira dado novo para o próximo ciclo (Fase 2).
+- **Drift:** mudança na política da casa ou novos tipos de alerta. Sinal de alerta: queda na concordância analista-modelo.
+- **Métricas de produção:** concordância analista-modelo, recall de críticos confirmados e tempo médio de triagem.
 
-from inference import triar
+### 7.5 Checklist de saída
 
-gr.Interface(fn=triar, inputs="text", outputs="json").launch()
-```
-
-> Se o Space for público, ele expõe um modelo privado: mantenha o Space também privado ou use apenas para apresentação em aula.
-
-### 7.5 Acompanhamento em produção (discussão escrita, sem implementação)
-
-No relatório, descrever em até uma página como seria o monitoramento real:
-
-- **Logging de previsões** (entrada, saída, timestamp) para auditoria — cuidado com dados sensíveis reais.
-- **Feedback loop**: analistas humanos marcam se a triagem do modelo estava certa → vira dado para retraining futuro (volta à Fase 2).
-- **Monitoramento de drift**: novos tipos de ataque/ferramentas (ex.: nova técnica MITRE) podem não estar no vocabulário de treino — acompanhar taxa de "incerteza"/JSON inválido como sinal de alerta.
-- **Métricas de produção**: tempo médio de triagem economizado, taxa de concordância analista-modelo, nº de críticos escalados corretamente.
-
-### 7.6 Checklist de saída da Fase 7
-
-- [ ] Modelo (ou adaptador LoRA) publicado como **privado** no Hugging Face Hub.
-- [ ] Model card completo com métricas, limitações e aviso de uso responsável.
-- [ ] `src/inference.py` rodando em sessão limpa e triando 5 alertas de teste com JSON válido.
-- [ ] Seção de "plano de monitoramento em produção" no relatório (máx. 1 página).
-- [ ] (Bônus) Space com demo funcional.
+- [ ] Adaptador publicado como privado no Hub.
+- [ ] Model card completo.
+- [ ] `src/inference.py` funcionando em sessão limpa.
+- [ ] Discussão de acompanhamento em produção.
 
 ---
 
-## Rubrica geral de avaliação do projeto
+## Rubrica de avaliação
 
-| Critério | Peso |
-|---|---|
-| Clareza do objetivo e adequação da escolha do modelo (Fase 1) | 10% |
-| Qualidade e documentação do dataset (Fase 2) | 20% |
-| Correção técnica da tokenização/template (Fase 3) | 10% |
-| Execução do treino com monitoramento e diagnóstico correto da curva de loss (Fase 4) | 15% |
-| Rigor na busca e justificativa de hiperparâmetros (Fase 5) | 15% |
-| Qualidade da avaliação, incluindo métrica de negócio (Fase 6) | 20% |
-| Publicação no Hub, model card, script de inferência em sessão limpa e discussão de uso responsável (Fase 7) | 10% |
-| Bônus: Space com demo funcional (Fase 7.4) | +5% |
+| Fase | Critério | Peso |
+|---|---|---|
+| 1 | Objetivo, métricas e baseline registrados antes do treino | 10% |
+| 2 | Defeitos do dataset encontrados e split sem vazamento | 15% |
+| 3 | Template correto e máscara de loss verificada | 10% |
+| 4 | Diagnóstico correto das curvas de loss | 15% |
+| 5 | Estratégia e hiperparâmetros justificados | 10% |
+| 6 | Comparação com baseline, recall de crítico, iteração e conclusão | 30% |
+| 7 | Publicação, model card e inferência em sessão limpa | 10% |
