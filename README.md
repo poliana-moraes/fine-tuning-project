@@ -16,19 +16,7 @@ Num SOC real, cada alerta passa por estas etapas, em ordem, até chegar à respo
 
 Um SOC recebe de centenas a milhares de alertas por dia. Mesmo com coleta, normalização e enriquecimento automatizados, a etapa de **triagem** continua manual: o L1 precisa ler alerta por alerta e aplicar a política de severidade da organização para decidir se é falso positivo, qual a severidade real e por quê. Essa análise repetitiva consome a maior parte do tempo do L1. Além disso, o resultado varia entre analistas e turnos, o que gera triagens inconsistentes e atraso na resposta a incidentes reais.
 
-### Solução para triagem de alertas
-
-A partir de um **alerta enriquecido**, produzir:
-
-```json
-{
-  "veredito": "falso_positivo | verdadeiro_positivo",
-  "severidade": "baixa | media | alta | critica",
-  "justificativa": "explicação curta citando o sinal técnico e o contexto"
-}
-```
-
-**Quando o fine-tuning se justifica para triagem de alertas:**
+### Quando o fine-tuning se justifica para triagem de alertas:
 
 - **Privacidade:** os alertas contêm hosts, usuários e IPs internos e não podem sair do ambiente. Um modelo pequeno ajustado roda on-premises.
 - **Volume e custo:** com milhares de alertas por dia, um modelo pequeno ajustado é muito mais barato e rápido por alerta do que um modelo grande via API.
@@ -38,24 +26,10 @@ A partir de um **alerta enriquecido**, produzir:
 ### Ambiente e ferramentas
 
 | Ferramenta | Função | 
-|---|---|---|
+|---|---|
 | **[Google Colab](https://colab.research.google.com/)** | Ambiente de execução do código com GPU T4 |
 | **[Hugging Face Hub](https://huggingface.co/)** | Modelo base, dataset do projeto, publicação do adaptador e do model card |
 | **[GitHub](https://github.com/poliana-moraes/fine-tuning-project/)** | Publicação da versão oficial do material do projeto | 
-
-**Antes de começar**
-
-1. **Conta no Hugging Face:** crie uma conta em [huggingface.co](https://huggingface.co).
-2. **Token de acesso:** em *Settings → Access Tokens*, crie um token do tipo **Read**. Nas fases de publicação é preciso um token **Write**.
-3. **Abrir o notebook no Colab:** abrir o notebook da tabela do README e, em seguida, salvar uma cópia no Drive*.
-4. **GPU:** *Ambiente de execução → Alterar o tipo de ambiente de execução → GPU T4*.
-5. **Secrets:** no ícone de chave do Colab, crie o segredo `HF_TOKEN` com o token e libere o acesso do notebook.
-
-**Regras de segurança**
-
-- O token do Hugging Face fica **só** nos *Secrets* do Colab. Nunca cole o token numa célula, num arquivo ou num commit.
-- Modelos e datasets publicados no Hugging Face devem ser **privados**.
-- Todos os dados do projeto são **sintéticos**. Nenhum dado real de incidente deve ser usado.
 
 ### Entregas por fase do processo de fine-tuning
 
@@ -63,7 +37,7 @@ A tabela abaixo apresenta cada fase do processo de fine-tuning de forma sequenci
 
 | Fase | Entrega | Notebook |
 |---|---|---|
-| 1. Planejamento do objetivo e do modelo | Ficha de objetivo e modelo + resultado do teste de necessidade | [fase_01_planejamento] (https://github.com/poliana-moraes/fine-tuning-project/) |
+| 1. Planejamento do objetivo e do modelo | Ficha de objetivo e modelo + resultado do teste de necessidade | [fase_01_planejamento](https://github.com/poliana-moraes/fine-tuning-project/) |
 | 2. Preparação dos dados | Relatório de auditoria + splits treino/validação/teste | [fase_02_prep_dados](https://github.com/poliana-moraes/fine-tuning-project/) |
 | 3. Tokenização | Histograma de tokens + verificação da máscara de loss | [fase_03_tokenizacao](https://github.com/poliana-moraes/fine-tuning-project/) |
 | 4. Estratégia de ajustes | Configuração justificada (estratégia + hiperparâmetros) | [fase_04_ajustes](https://github.com/poliana-moraes/fine-tuning-project/) |
