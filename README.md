@@ -37,7 +37,7 @@ A tabela abaixo apresenta cada fase do processo de fine-tuning de forma sequenci
 
 | Fase | Entrega | Notebook |
 |---|---|---|
-| 1. Planejamento do objetivo e do modelo | Ficha de objetivo e modelo + resultado do teste de necessidade | [fase_01_planejamento](https://github.com/poliana-moraes/fine-tuning-project/) |
+| 1. Planejamento do objetivo e do modelo | Ficha de objetivo e modelo + resultado do teste de necessidade | [fase_01_planejamento](https://github.com/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_01_planejamento.ipynb) |
 | 2. Preparação dos dados | Relatório de auditoria + splits treino/validação/teste | [fase_02_prep_dados](https://github.com/poliana-moraes/fine-tuning-project/) |
 | 3. Tokenização | Histograma de tokens + verificação da máscara de loss | [fase_03_tokenizacao](https://github.com/poliana-moraes/fine-tuning-project/) |
 | 4. Estratégia de ajustes | Configuração justificada (estratégia + hiperparâmetros) | [fase_04_ajustes](https://github.com/poliana-moraes/fine-tuning-project/) |
