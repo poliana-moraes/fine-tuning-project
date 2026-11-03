@@ -23,24 +23,41 @@ Um SOC recebe de centenas a milhares de alertas por dia. Mesmo com coleta, norma
 - **Consistência:** o modelo aprende a aplicar sempre a **política de severidade da organização** e a devolver sempre o mesmo formato JSON.
 
 
+### Entregas por fase do fine-tuning
+
+A tabela abaixo apresenta cada fase do processo de fine-tuning de forma sequencial. Cada fase é desenvolvida a partir de um notebook deve ser aberto a partir de um Colab com GPU T4. Para você executar o projeto, basta abrir os notebooks de forma sequencial no Google Colab.
+
+| Fase | Objetivo | Notebook |
+|---|---|---|
+| 1. Planejamento do objetivo e do modelo | Definir a tarefa do modelo, definir as metas de sucesso do fine-tuning, escolher o modelo base e executar o teste de necessidade | [fase_01_planejamento](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_01_planejamento.ipynb) |
+| 2. Preparação dos dados | Auditar o dataset fornecido, limpar, padronizar e dividir em treino, validação e teste | [fase_02_prep_dados](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_02_prep_dados.ipynb) |
+| 3. Tokenização | Converter os exemplos em tokens com o tokenizador do próprio modelo, no formato do seu chat template | [fase_03_tokenizacao](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_03_tokenizacao.ipynb) |
+| 4. Estratégia de ajustes | Definir como o modelo será ajustado e com quais hiperparâmetros | [fase_04_ajustes](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_04_ajustes.ipynb) |
+| 5. Execução do treinamento | O modelo vê os exemplos de treino repetidamente e ajusta os pesos para errar menos, enquanto se acompanham as curvas de loss. Ao final, o adaptador LoRA é salvo no Google Drive. | [fase_05_treinamento](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_05_treinamento.ipynb) |
+| 6. Avaliação | Medir no conjunto de **teste**, comparar com o baseline | [fase_06_avaliacao](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_06_avaliacao.ipynb) |
+| 7. Demo do assistente | Carregar o modelo base e o adaptador salvo no Drive e disponibilizar uma demo no Gradio, onde se cola um alerta e se recebe a triagem em JSON | [fase_07_demo_gradio](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_07_demo_gradio.ipynb) |
+
 ### Ambiente e ferramentas
 
 | Ferramenta | Função | 
 |---|---|
+| **[Hugging Face Hub](https://huggingface.co/)** | Modelo base e dataset do projeto |
+| **[Gradio](https://www.gradio.app/)** | Interface web da demo do assistente de triagem |
 | **[Google Colab](https://colab.research.google.com/)** | Ambiente de execução do código com GPU T4 |
-| **[Hugging Face Hub](https://huggingface.co/)** | Modelo base, dataset do projeto, publicação do adaptador e do model card |
 | **[GitHub](https://github.com/poliana-moraes/fine-tuning-project/)** | Publicação da versão oficial do material do projeto | 
 
-### Entregas por fase do processo de fine-tuning
+### Versões das bibliotecas
 
-A tabela abaixo apresenta cada fase do processo de fine-tuning de forma sequencial. Cada fase é desenvolvida a partir de um notebook deve ser aberto a partir de um Colab com GPU T4. Para você executar o projeto, basta abrir os notebooks de forma sequencial no Google Colab.
+Os notebooks usam a **versão 2026.10 do runtime do Colab**, com Python 3.13.18. O PyTorch e o CUDA são os que já vêm instalados nesse runtime. As demais bibliotecas são instaladas com versão fixa em cada notebook:
 
-| Fase | Entrega | Notebook |
+| Biblioteca | Versão | Usada nas fases |
 |---|---|---|
-| 1. Planejamento do objetivo e do modelo | Ficha de objetivo e modelo + resultado do teste de necessidade | [fase_01_planejamento](https://github.com/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_01_planejamento.ipynb) |
-| 2. Preparação dos dados | Relatório de auditoria + splits treino/validação/teste | [fase_02_prep_dados](https://github.com/poliana-moraes/fine-tuning-project/) |
-| 3. Tokenização | Histograma de tokens + verificação da máscara de loss | [fase_03_tokenizacao](https://github.com/poliana-moraes/fine-tuning-project/) |
-| 4. Estratégia de ajustes | Configuração justificada (estratégia + hiperparâmetros) | [fase_04_ajustes](https://github.com/poliana-moraes/fine-tuning-project/) |
-| 5. Execução do treinamento | Curvas de loss com diagnóstico escrito + adaptador LoRA | [fase_05_treinamento](https://github.com/poliana-moraes/fine-tuning-project/) |
-| 6. Avaliação | Tabela baseline × fine-tuned + matriz de confusão | [fase_06_avaliacao](https://github.com/poliana-moraes/fine-tuning-project/) |
-| 7. Publicação | Modelo privado no Hub + model card + notebook de inferência | [fase_07_publicacao](https://github.com/poliana-moraes/fine-tuning-project/) |
+| `transformers` | 5.22.0 | 1, 3, 4, 5, 6, 7 |
+| `datasets` | 4.8.5 | 1 a 7 |
+| `huggingface_hub` | 1.33.0 | 1 a 7 |
+| `accelerate` | 1.15.0 | 1, 3, 4, 5, 6, 7 |
+| `trl` | 1.17.1 | 3, 4, 5 |
+| `peft` | 0.21.2 | 4, 5, 6, 7 |
+| `scikit-learn` | 1.6.1 | 2, 6 |
+| `tensorboard` | 2.21.0 | 5 |
+| `gradio` | 6.31.0 | 7 |
