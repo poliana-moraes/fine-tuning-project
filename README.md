@@ -30,7 +30,7 @@ Para você executar o projeto, basta abrir os notebooks de forma sequencial no G
 | 3. Tokenização | Converter os exemplos em tokens com o tokenizador do próprio modelo, no formato do seu chat template | [fase_03_tokenizacao](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_03_tokenizacao.ipynb) |
 | 4. Estratégia de ajustes | Definir como o modelo será ajustado e com quais hiperparâmetros | [fase_04_ajustes](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_04_ajustes.ipynb) |
 | 5. Execução do treinamento | O modelo é treinado e ajusta os pesos | [fase_05_treinamento](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_05_treinamento.ipynb) |
-| 6. Avaliação | Medir no conjunto de **teste** e comparar com o baseline | [fase_06_avaliacao](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_06_avaliacao.ipynb) |
+| 6. Avaliação | Medir no conjunto de teste e comparar com o baseline | [fase_06_avaliacao](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_06_avaliacao.ipynb) |
 | 7. Demo do assistente | Carregar o modelo base e o adaptador através de uma demo no Gradio, onde se cola um alerta e se recebe a triagem em JSON | [fase_07_demo_gradio](https://colab.research.google.com/github/poliana-moraes/fine-tuning-project/blob/main/notebooks/fase_07_demo_gradio.ipynb) |
 
 ### Ambiente e ferramentas
@@ -38,24 +38,24 @@ Para você executar o projeto, basta abrir os notebooks de forma sequencial no G
 | Ferramenta | Função | 
 |---|---|
 | **[Hugging Face Hub](https://huggingface.co/)** | Modelo base e dataset do projeto |
-| **[Gradio](https://www.gradio.app/)** | Interface web da demo do assistente de triagem |
+| **[Gradio](https://www.gradio.app/)** | Interface web da demo para o assistente de triagem |
 | **[Google Colab](https://colab.research.google.com/)** | Ambiente de execução do código com GPU T4 |
 | **[GitHub](https://github.com/poliana-moraes/fine-tuning-project/)** | Publicação da versão oficial do material do projeto | 
 
 ### Versões das bibliotecas
 
 Os notebooks usam a **versão 2026.10 do runtime do Colab**, com Python 3.13.18. 
-O PyTorch e o CUDA são os que já vêm instalados nesse runtime. 
+O PyTorch e o CUDA são os que já vêm instalados no runtime. 
 As demais bibliotecas são instaladas com versão fixa em cada notebook:
 
-| Biblioteca | Versão | Usada nas fases |
-|---|---|---|
-| `transformers` | 5.22.0 | 1, 3, 4, 5, 6, 7 |
-| `datasets` | 4.8.5 | 1 a 7 |
-| `huggingface_hub` | 1.33.0 | 1 a 7 |
-| `accelerate` | 1.15.0 | 1, 3, 4, 5, 6, 7 |
-| `trl` | 1.17.1 | 3, 4, 5 |
-| `peft` | 0.21.2 | 4, 5, 6, 7 |
-| `scikit-learn` | 1.6.1 | 2, 6 |
-| `tensorboard` | 2.21.0 | 5 |
-| `gradio` | 6.31.0 | 7 |
+| Biblioteca | Versão | 
+|---|---|
+| `transformers` | 5.22.0 | 
+| `datasets` | 4.8.5 |
+| `huggingface_hub` | 1.33.0 | 
+| `accelerate` | 1.15.0 |
+| `trl` | 1.17.1 | 
+| `peft` | 0.21.2 | 
+| `scikit-learn` | 1.6.1 |
+| `tensorboard` | 2.21.0 |
+| `gradio` | 6.31.0 |
